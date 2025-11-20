@@ -83,13 +83,11 @@ TEMPLATES = [
 WSGI_APPLICATION = 'chayakada.wsgi.application'
 ASGI_APPLICATION = 'chayakada.asgi.application'
 
-REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379")
-
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL],
+            "hosts": [("127.0.0.1", 6379)],
         },
     },
 }
