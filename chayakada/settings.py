@@ -37,12 +37,14 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=lamb
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
     'chatkada',
     'django_crontab',
 ]
@@ -56,7 +58,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'chatkada.middleware.OnlineStatusMiddleware', 
+    'chatkada.middleware.OnlineStatusMiddleware',
+    'chatkada.middleware_nocache.NoCacheMiddleware',
 ]
 
 
@@ -78,6 +81,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'chayakada.wsgi.application'
+ASGI_APPLICATION = 'chayakada.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+        },
+    },
+}
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # Database
@@ -149,8 +162,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CRONJOBS = [
     ('0 * * * *', 'chatkada.management.commands.cleanup_expired_messages.Command'),  # Every hour
 ]
-
-LOGOUT_REDIRECT_URL = '/logout/'
 
 
 CELERY_BEAT_SCHEDULE = {

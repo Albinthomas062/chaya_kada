@@ -1,17 +1,17 @@
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from . import views
-from .views import create_superuser_view
+
 urlpatterns = [
     path('', views.home, name='home'),
     path('register/', views.register, name='register'),
     path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
-    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('logout/', views.custom_logout, name='logout'),
     path('kada/', views.kada, name='kada'),
     path('profile/', views.profile, name='profile'),
     path('buy-item/', views.buy_item, name='buy_item'),
     
-    # Chat URLs - make sure these match your template references
+    # Chat URLs
     path('find-chat/', views.find_chat, name='find_chat'),
     path('chat/<uuid:room_id>/', views.chat_room, name='chat_room'),
     path('send-chat-message/', views.send_chat_message, name='send_chat_message'),
@@ -25,7 +25,7 @@ urlpatterns = [
     path('get-coin-progress/', views.get_coin_progress, name='get_coin_progress'),
     path('get-online-status/', views.get_online_status, name='get_online_status'),
     path('find-stranger/', views.find_stranger_chat, name='find_stranger_chat'),
-    path("create-superuser/", create_superuser_view),
+    
     # Item management for admin
     path('custom-admin/login/', views.custom_admin_login, name='custom_admin_login'),
     path('custom-admin/', views.custom_admin_dashboard, name='custom_admin_dashboard'),

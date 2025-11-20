@@ -22,6 +22,9 @@ import uuid
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 
+def home(request):
+    return render(request, 'home.html')
+
 def register(request):
     if request.method == 'POST':
         form = SimpleUserCreationForm(request.POST)
@@ -1204,6 +1207,7 @@ def get_online_status(request):
 from .forms import ItemForm, AssignChallengeForm
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login
+from django.contrib.admin.views.decorators import staff_member_required
 
 def custom_admin_login(request):
     if request.user.is_authenticated and request.user.is_staff:
@@ -1218,18 +1222,18 @@ def custom_admin_login(request):
         messages.error(request, "Invalid credentials or not a staff user.")
     return render(request, 'custom_admin/admin_login.html')
 
-@login_required 
+@staff_member_required
 def custom_admin_dashboard(request):
     return render(request, 'custom_admin/dashboard.html')
 
 # ——— Items ———
 
-@login_required
+@staff_member_required
 def manage_items(request):
     items = Item.objects.all().order_by('category', 'name')
     return render(request, 'custom_admin/items.html', {"items": items})
 
-@login_required
+@staff_member_required
 def add_item(request):
     if request.method == "POST":
         form = ItemForm(request.POST)
@@ -1241,7 +1245,7 @@ def add_item(request):
         form = ItemForm()
     return render(request, "custom_admin/item_form.html", {"form": form, "form_title": "Add Item"})
 
-@login_required
+@staff_member_required
 def edit_item(request, item_id):
     item = get_object_or_404(Item, id=item_id)
     if request.method == "POST":
@@ -1254,7 +1258,7 @@ def edit_item(request, item_id):
         form = ItemForm(instance=item)
     return render(request, "custom_admin/item_form.html", {"form": form, "form_title": "Edit Item"})
 
-@login_required
+@staff_member_required
 def delete_item(request, item_id):
     item = get_object_or_404(Item, id=item_id)
     if request.method == "POST":
@@ -1265,12 +1269,12 @@ def delete_item(request, item_id):
 
 # ——— Daily Challenges ———
 
-@login_required
+@staff_member_required
 def manage_challenges(request):
     challenges = DailyChallenge.objects.order_by('-completed_date')[:50]
     return render(request, 'custom_admin/challenges.html', {"challenges": challenges})
 
-@login_required
+@staff_member_required
 def assign_challenge(request):
     if request.method == "POST":
         form = AssignChallengeForm(request.POST)
