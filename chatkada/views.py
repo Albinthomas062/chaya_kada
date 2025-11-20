@@ -1038,11 +1038,12 @@ def create_stranger_chat_room(request, matched_user_queue):
     """Create a chat room for matched strangers"""
     matched_user = matched_user_queue.user
     
-    # Create chat room
+    # Create chat room with max_users=2 for 1-on-1 secure chat
     chat_room = ChatRoom.objects.create(
         name=f"Stranger Chat {timezone.now().strftime('%H:%M')}",
         room_type='stranger',
         created_by=request.user,
+        max_users=2,  # Secure 1-on-1 chat
         expires_at=timezone.now() + timedelta(hours=1)
     )
     
@@ -1065,11 +1066,15 @@ def create_stranger_chat_room(request, matched_user_queue):
         room=chat_room,
         user=request.user,
         message_type='system',
-        content=f"Connected with {matched_user.username}! Say hello! 👋"
+        content=f"Connected with a stranger! Say hello! 👋"
     )
     
-    messages.success(request, f'Connected with a stranger! Enjoy your chat! ☕')
-    return redirect('chat_room', room_id=chat_room.room_id)
+    # Return JSON response for AJAX
+    return JsonResponse({
+        'status': 'matched',
+        'message': 'Connected with a stranger!',
+        'room_id': str(chat_room.room_id)
+    })
 
 def wait_for_match(request, queue_entry, available_users):
     """Handle waiting state when no immediate match is available"""

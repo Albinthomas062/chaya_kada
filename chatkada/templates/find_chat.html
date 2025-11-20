@@ -5,7 +5,7 @@
 <div class="chat-finder-container">
     <div class="chat-options">
         <h1><i class="fas fa-comments"></i> Find Your Spot in the Kada</h1>
-        
+
         <div class="chat-type-selector">
             <!-- Enhanced Stranger Chat Option -->
             <div class="chat-option stranger-option">
@@ -17,7 +17,7 @@
                     </div>
                 </div>
                 <p>Connect instantly with someone new and enjoy a conversation over virtual chai</p>
-                
+
                 <div class="stranger-stats">
                     <div class="stat-item">
                         <i class="fas fa-clock"></i>
@@ -28,12 +28,12 @@
                         <span>Safe & anonymous</span>
                     </div>
                 </div>
-                
+
                 {% if not in_stranger_queue %}
-<form id="find-stranger-form">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-primary">Find a Stranger</button>
-</form>
+                <form id="find-stranger-form">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">Find a Stranger</button>
+                </form>
 
                 {% else %}
                 <div class="searching-status">
@@ -47,7 +47,7 @@
                 </div>
                 {% endif %}
             </div>
-            
+
             <!-- Private Bench Option -->
             <div class="chat-option bench-option">
                 <h3><i class="fas fa-chair"></i> Create Your Bench</h3>
@@ -55,22 +55,21 @@
                 <form method="post" id="bench-form">
                     {% csrf_token %}
                     <input type="hidden" name="chat_type" value="private_bench">
-                    
+
                     <div class="bench-name-input">
                         <label for="bench_name">Bench Name:</label>
-                        <input type="text" name="bench_name" id="bench_name" 
-                               placeholder="e.g., Friends Corner, Study Group..." 
-                               maxlength="50" required>
+                        <input type="text" name="bench_name" id="bench_name"
+                            placeholder="e.g., Friends Corner, Study Group..." maxlength="50" required>
                         <small>Choose a memorable name for your bench</small>
                     </div>
-                    
+
                     <button type="submit" class="btn btn-secondary">
                         <i class="fas fa-plus"></i> Create Bench
                     </button>
                 </form>
             </div>
         </div>
-        
+
         <!-- Quick Join Section -->
         {% if recent_stranger_chats %}
         <div class="quick-join-section">
@@ -97,7 +96,7 @@
             </div>
         </div>
         {% endif %}
-        
+
         <!-- Active Stranger Chats -->
         {% if user_stranger_chats %}
         <div class="my-benches">
@@ -118,11 +117,11 @@
                                 <i class="fas fa-hourglass-half"></i> {{ chat.time_remaining_str }}
                             </span>
                             <span class="chat-activity">
-                                <i class="fas fa-comment"></i> 
+                                <i class="fas fa-comment"></i>
                                 {% if chat.latest_message %}
-                                    Last message {{ chat.latest_message.timestamp|timesince }} ago
+                                Last message {{ chat.latest_message.timestamp|timesince }} ago
                                 {% else %}
-                                    No messages yet
+                                No messages yet
                                 {% endif %}
                             </span>
                         </div>
@@ -140,7 +139,7 @@
             </div>
         </div>
         {% endif %}
-        
+
         <!-- Private Benches -->
         {% if user_benches %}
         <div class="my-benches">
@@ -162,7 +161,8 @@
                             </span>
                             {% if bench.latest_message %}
                             <span class="bench-activity">
-                                <i class="fas fa-comment"></i> Last message {{ bench.latest_message.timestamp|timesince }} ago
+                                <i class="fas fa-comment"></i> Last message {{ bench.latest_message.timestamp|timesince
+                                }} ago
                             </span>
                             {% endif %}
                         </div>
@@ -171,7 +171,8 @@
                         <a href="{% url 'chat_room' bench.room_id %}" class="btn btn-sm btn-primary">
                             <i class="fas fa-door-open"></i> Enter
                         </a>
-                        <button class="btn btn-sm btn-secondary" onclick="showInviteModal('{{ bench.room_id }}', '{{ bench.bench_name }}')">
+                        <button class="btn btn-sm btn-secondary"
+                            onclick="showInviteModal('{{ bench.room_id }}', '{{ bench.bench_name }}')">
                             <i class="fas fa-share"></i> Invite
                         </button>
                     </div>
@@ -180,7 +181,7 @@
             </div>
         </div>
         {% endif %}
-        
+
         <!-- No Active Chats Message -->
         {% if not user_stranger_chats and not user_benches %}
         <div class="no-chats-section">
@@ -199,7 +200,7 @@
     <div class="modal-content">
         <span class="close" onclick="closeInviteModal()">&times;</span>
         <h3 id="modal-title">Invite Friends to Your Bench</h3>
-        
+
         <div class="invite-settings">
             <div class="form-group">
                 <label for="max_uses">Maximum uses:</label>
@@ -210,7 +211,7 @@
                     <option value="50">50 people</option>
                 </select>
             </div>
-            
+
             <div class="form-group">
                 <label for="expires_in_days">Expires in:</label>
                 <select id="expires_in_days">
@@ -220,11 +221,11 @@
                 </select>
             </div>
         </div>
-        
+
         <button id="generate-invite" class="btn btn-primary">
             <i class="fas fa-link"></i> Generate Invite Link
         </button>
-        
+
         <div id="invite-result" class="invite-result" style="display: none;">
             <h4>Share this link with your friends:</h4>
             <div class="invite-link-container">
@@ -233,7 +234,7 @@
                     <i class="fas fa-copy"></i> Copy
                 </button>
             </div>
-            
+
             <div class="social-share">
                 <h4>Share on social media:</h4>
                 <div class="social-buttons">
@@ -248,7 +249,7 @@
                     </button>
                 </div>
             </div>
-            
+
             <div class="invite-info">
                 <p><strong>Expires:</strong> <span id="invite-expires"></span></p>
                 <p><strong>Max uses:</strong> <span id="invite-max-uses"></span></p>
@@ -269,620 +270,770 @@
 
 {% block extra_js %}
 <script>
-let currentRoomId = null;
-let currentBenchName = null;
-let currentInviteLink = null;
+    let currentRoomId = null;
+    let currentBenchName = null;
+    let currentInviteLink = null;
+    let searchingInterval = null;
+    let searchStartTime = null;
 
-class ChatFinder {
-    constructor() {
-        this.onlineCheckInterval = null;
-        this.connectionCheckInterval = null;
-        this.init();
-    }
-    
-    init() {
-        this.updateOnlineStatus();
-        this.startOnlineStatusChecking();
-        this.checkUserConnection();
-    }
-    
-    startOnlineStatusChecking() {
-        // Update online count every 15 seconds
-        this.onlineCheckInterval = setInterval(() => {
+    class ChatFinder {
+        constructor() {
+            this.onlineCheckInterval = null;
+            this.connectionCheckInterval = null;
+            this.init();
+        }
+
+        init() {
             this.updateOnlineStatus();
-        }, 15000);
-        
-        // Check connection every 30 seconds
-        this.connectionCheckInterval = setInterval(() => {
+            this.startOnlineStatusChecking();
             this.checkUserConnection();
-        }, 30000);
-    }
-    
-    updateOnlineStatus() {
-        fetch('/get-online-status/')
-            .then(response => response.json())
-            .then(data => {
-                const onlineCount = document.getElementById('online-count');
-                const onlineDot = document.getElementById('online-dot');
-                
-                if (onlineCount) {
-                    onlineCount.textContent = data.online_users;
-                }
-                
-                if (onlineDot) {
-                    onlineDot.className = 'status-dot ' + (data.online_users > 0 ? 'online' : 'offline');
-                }
-                
-                // Update searching status if user is in queue
-                if (data.in_queue) {
-                    this.showSearchingStatus();
-                }
+            this.setupStrangerSearchForm();
+        }
+
+        setupStrangerSearchForm() {
+            const form = document.getElementById('find-stranger-form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.startStrangerSearch();
+                });
+            }
+        }
+
+        startStrangerSearch() {
+            const submitBtn = document.querySelector('#find-stranger-form button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<div class="searching-inline"><div class="spinner-xs"></div><span>Searching...</span></div>';
+            }
+
+            // Show searching toast
+            this.showSearchingToast();
+            searchStartTime = Date.now();
+
+            // Make initial request
+            fetch('/find-stranger/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: 'action=find_stranger'
             })
-            .catch(error => {
-                console.error('Failed to update online status:', error);
-                this.showConnectionIssue();
-            });
-    }
-    
-    checkUserConnection() {
-        fetch('/get-online-status/')
-            .then(response => {
-                if (response.ok) {
-                    this.hideConnectionToast();
-                } else {
-                    throw new Error('Connection failed');
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'matched') {
+                        // Matched immediately
+                        this.handleMatchFound(data);
+                    } else if (data.status === 'waiting') {
+                        // Start polling for match
+                        this.startPollingForMatch();
+                    } else if (data.status === 'no_users') {
+                        this.showNoUsersToast(data.message);
+                        this.resetSearchButton();
+                    } else if (data.status === 'connection_issue') {
+                        this.showErrorToast(data.message);
+                        this.resetSearchButton();
+                    }
+                })
+                .catch(error => {
+                    console.error('Search error:', error);
+                    this.showErrorToast('Failed to start search. Please try again.');
+                    this.resetSearchButton();
+                });
+        }
+
+        startPollingForMatch() {
+            let pollCount = 0;
+            const maxPolls = 60; // 5 minutes (60 * 5 seconds)
+
+            searchingInterval = setInterval(() => {
+                pollCount++;
+
+                // Update elapsed time in toast
+                const elapsed = Math.floor((Date.now() - searchStartTime) / 1000);
+                this.updateSearchingToast(elapsed);
+
+                if (pollCount >= maxPolls) {
+                    this.stopPolling();
+                    this.showTimeoutToast();
+                    return;
                 }
-            })
-            .catch(error => {
-                this.showConnectionIssue();
-            });
-    }
-    
-    showSearchingStatus() {
-        const strangerOption = document.querySelector('.stranger-option');
-        if (strangerOption && !strangerOption.querySelector('.searching-status')) {
-            const searchBtn = strangerOption.querySelector('.btn-primary');
-            if (searchBtn) {
-                searchBtn.innerHTML = `
-                    <div class="searching-inline">
-                        <div class="spinner-xs"></div>
-                        <span>Searching...</span>
-                    </div>
-                `;
-                searchBtn.classList.add('btn-warning');
-                searchBtn.classList.remove('btn-primary');
+
+                // Check for match
+                fetch('/find-stranger/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: 'action=find_stranger'
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'matched') {
+                            this.stopPolling();
+                            this.handleMatchFound(data);
+                        } else if (data.status === 'no_users' || data.status === 'connection_issue') {
+                            this.stopPolling();
+                            this.showErrorToast(data.message);
+                            this.resetSearchButton();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Polling error:', error);
+                    });
+            }, 5000); // Poll every 5 seconds
+        }
+
+        stopPolling() {
+            if (searchingInterval) {
+                clearInterval(searchingInterval);
+                searchingInterval = null;
+            }
+        }
+
+        handleMatchFound(data) {
+            this.hideSearchingToast();
+            showNotification('Match found! Connecting to chat...', 'success');
+
+            // Redirect to chat room
+            if (data.room_id) {
+                window.location.href = `/chat/${data.room_id}/`;
+            } else {
+                // Fallback: reload page to see active chats
+                window.location.reload();
+            }
+        }
+
+        resetSearchButton() {
+            const submitBtn = document.querySelector('#find-stranger-form button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Find a Stranger';
+            }
+        }
+
+        showSearchingToast() {
+            const toast = document.getElementById('connection-toast');
+            const icon = document.getElementById('toast-icon');
+            const message = document.getElementById('toast-message');
+
+            icon.className = 'fas fa-search';
+            message.innerHTML = 'Searching for a stranger... <span id="search-timer">0s</span>';
+            toast.classList.add('show', 'searching');
+            toast.classList.remove('warning', 'error');
+        }
+
+        updateSearchingToast(seconds) {
+            const timer = document.getElementById('search-timer');
+            if (timer) {
+                timer.textContent = `${seconds}s`;
+            }
+        }
+
+        hideSearchingToast() {
+            const toast = document.getElementById('connection-toast');
+            toast.classList.remove('show', 'searching', 'warning', 'error');
+        }
+
+        showNoUsersToast(message) {
+            const toast = document.getElementById('connection-toast');
+            const icon = document.getElementById('toast-icon');
+            const toastMessage = document.getElementById('toast-message');
+
+            icon.className = 'fas fa-user-slash';
+            toastMessage.textContent = message || 'No users available right now';
+            toast.classList.add('show', 'warning');
+            toast.classList.remove('searching', 'error');
+
+            setTimeout(() => {
+                this.hideSearchingToast();
+            }, 5000);
+        }
+
+        showErrorToast(message) {
+            const toast = document.getElementById('connection-toast');
+            const icon = document.getElementById('toast-icon');
+            const toastMessage = document.getElementById('toast-message');
+
+            icon.className = 'fas fa-exclamation-triangle';
+            toastMessage.textContent = message || 'Connection error';
+            toast.classList.add('show', 'error');
+            toast.classList.remove('searching', 'warning');
+
+            setTimeout(() => {
+                this.hideSearchingToast();
+            }, 5000);
+        }
+
+        showTimeoutToast() {
+            this.showErrorToast('Search timeout. No strangers found. Please try again later.');
+            this.resetSearchButton();
+        }
+
+        startOnlineStatusChecking() {
+            // Update online count every 15 seconds
+            this.onlineCheckInterval = setInterval(() => {
+                this.updateOnlineStatus();
+            }, 15000);
+
+            // Check connection every 30 seconds
+            this.connectionCheckInterval = setInterval(() => {
+                this.checkUserConnection();
+            }, 30000);
+        }
+
+        updateOnlineStatus() {
+            fetch('/get-online-status/')
+                .then(response => response.json())
+                .then(data => {
+                    const onlineCount = document.getElementById('online-count');
+                    const onlineDot = document.getElementById('online-dot');
+
+                    if (onlineCount) {
+                        onlineCount.textContent = data.online_users;
+                    }
+
+                    if (onlineDot) {
+                        onlineDot.className = 'status-dot ' + (data.online_users > 0 ? 'online' : 'offline');
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to update online status:', error);
+                });
+        }
+
+        checkUserConnection() {
+            fetch('/get-online-status/')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Connection failed');
+                    }
+                })
+                .catch(error => {
+                    console.error('Connection check failed:', error);
+                });
+        }
+
+        destroy() {
+            this.stopPolling();
+            if (this.onlineCheckInterval) {
+                clearInterval(this.onlineCheckInterval);
+            }
+            if (this.connectionCheckInterval) {
+                clearInterval(this.connectionCheckInterval);
             }
         }
     }
-    
-    showConnectionIssue() {
-        const toast = document.getElementById('connection-toast');
-        const icon = document.getElementById('toast-icon');
-        const message = document.getElementById('toast-message');
-        
-        icon.className = 'fas fa-exclamation-triangle';
-        message.textContent = 'Connection issue detected';
-        toast.classList.add('show', 'warning');
-    }
-    
-    hideConnectionToast() {
-        const toast = document.getElementById('connection-toast');
-        toast.classList.remove('show', 'warning', 'error');
-    }
-    
-    destroy() {
-        if (this.onlineCheckInterval) {
-            clearInterval(this.onlineCheckInterval);
-        }
-        if (this.connectionCheckInterval) {
-            clearInterval(this.connectionCheckInterval);
-        }
-    }
-}
 
-// Initialize chat finder
-let chatFinder;
-document.addEventListener('DOMContentLoaded', () => {
-    chatFinder = new ChatFinder();
-});
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-    if (chatFinder) {
-        chatFinder.destroy();
-    }
-});
-
-// Invite modal functions (same as before)
-function showInviteModal(roomId, benchName) {
-    currentRoomId = roomId;
-    currentBenchName = benchName;
-    document.getElementById('modal-title').textContent = `Invite Friends to "${benchName}"`;
-    document.getElementById('invite-modal').style.display = 'block';
-    document.getElementById('invite-result').style.display = 'none';
-}
-
-function closeInviteModal() {
-    document.getElementById('invite-modal').style.display = 'none';
-}
-
-function generateInviteLink() {
-    const maxUses = document.getElementById('max_uses').value;
-    const expiresInDays = document.getElementById('expires_in_days').value;
-    
-    fetch(`/create-bench-invite/${currentRoomId}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-CSRFToken': getCookie('csrftoken')
-        },
-        body: `max_uses=${maxUses}&expires_in_days=${expiresInDays}`
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            currentInviteLink = data.invite_url;
-            document.getElementById('invite-link').value = data.invite_url;
-            document.getElementById('invite-expires').textContent = data.expires_at;
-            document.getElementById('invite-max-uses').textContent = data.max_uses;
-            document.getElementById('invite-current-uses').textContent = data.current_uses;
-            document.getElementById('invite-result').style.display = 'block';
-        } else {
-            showNotification('Error generating invite link', 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showNotification('Error generating invite link', 'error');
+    // Initialize chat finder
+    let chatFinder;
+    document.addEventListener('DOMContentLoaded', () => {
+        chatFinder = new ChatFinder();
     });
-}
 
-function copyInviteLink() {
-    const inviteLink = document.getElementById('invite-link');
-    inviteLink.select();
-    inviteLink.setSelectionRange(0, 99999);
-    document.execCommand('copy');
-    
-    showNotification('Invite link copied to clipboard!', 'success');
-}
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        if (chatFinder) {
+            chatFinder.destroy();
+        }
+    });
 
-function leaveStrangerChat(roomId) {
-    if (confirm('Are you sure you want to leave this stranger chat? You won\'t be able to rejoin.')) {
-        fetch(`/leave-chat/${roomId}/`, {
+    // Invite modal functions
+    function showInviteModal(roomId, benchName) {
+        currentRoomId = roomId;
+        currentBenchName = benchName;
+        document.getElementById('modal-title').textContent = `Invite Friends to "${benchName}"`;
+        document.getElementById('invite-modal').style.display = 'block';
+        document.getElementById('invite-result').style.display = 'none';
+    }
+
+    function closeInviteModal() {
+        document.getElementById('invite-modal').style.display = 'none';
+    }
+
+    function generateInviteLink() {
+        const maxUses = document.getElementById('max_uses').value;
+        const expiresInDays = document.getElementById('expires_in_days').value;
+
+        fetch(`/create-bench-invite/${currentRoomId}/`, {
             method: 'POST',
             headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie('csrftoken')
-            }
+            },
+            body: `max_uses=${maxUses}&expires_in_days=${expiresInDays}`
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showNotification('Left the chat successfully', 'success');
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                showNotification('Error leaving chat', 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showNotification('Error leaving chat', 'error');
-        });
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentInviteLink = data.invite_url;
+                    document.getElementById('invite-link').value = data.invite_url;
+                    document.getElementById('invite-expires').textContent = data.expires_at;
+                    document.getElementById('invite-max-uses').textContent = data.max_uses;
+                    document.getElementById('invite-current-uses').textContent = data.current_uses;
+                    document.getElementById('invite-result').style.display = 'block';
+                } else {
+                    showNotification('Error generating invite link', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Error generating invite link', 'error');
+            });
     }
-}
 
-// Social sharing functions
-function shareOnWhatsApp() {
-    const message = `Join me at "${currentBenchName}" bench in Chaya Kada! ${currentInviteLink}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-}
+    function copyInviteLink() {
+        const inviteLink = document.getElementById('invite-link');
+        inviteLink.select();
+        inviteLink.setSelectionRange(0, 99999);
+        document.execCommand('copy');
 
-function shareOnTelegram() {
-    const message = `Join me at "${currentBenchName}" bench in Chaya Kada! ${currentInviteLink}`;
-    window.open(`https://t.me/share/url?url=${encodeURIComponent(currentInviteLink)}&text=${encodeURIComponent(message)}`, '_blank');
-}
-
-function shareOnTwitter() {
-    const message = `Join me at "${currentBenchName}" bench in Chaya Kada!`;
-    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent(currentInviteLink)}`, '_blank');
-}
-
-// Event listeners
-document.getElementById('generate-invite')?.addEventListener('click', generateInviteLink);
-
-// Close modal when clicking outside
-window.onclick = function(event) {
-    const modal = document.getElementById('invite-modal');
-    if (event.target == modal) {
-        closeInviteModal();
+        showNotification('Invite link copied to clipboard!', 'success');
     }
-}
 
-// Utility functions
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
+    function leaveStrangerChat(roomId) {
+        if (confirm('Are you sure you want to leave this stranger chat? You won\'t be able to rejoin.')) {
+            fetch(`/leave-chat/${roomId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification('Left the chat successfully', 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        showNotification('Error leaving chat', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showNotification('Error leaving chat', 'error');
+                });
         }
     }
-    return cookieValue;
-}
 
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type} show`;
-    notification.textContent = message;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.classList.remove('show');
-        setTimeout(() => {
-            if (notification.parentNode) {
-                document.body.removeChild(notification);
+    // Social sharing functions
+    function shareOnWhatsApp() {
+        const message = `Join me at "${currentBenchName}" bench in Chaya Kada! ${currentInviteLink}`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+    }
+
+    function shareOnTelegram() {
+        const message = `Join me at "${currentBenchName}" bench in Chaya Kada! ${currentInviteLink}`;
+        window.open(`https://t.me/share/url?url=${encodeURIComponent(currentInviteLink)}&text=${encodeURIComponent(message)}`, '_blank');
+    }
+
+    function shareOnTwitter() {
+        const message = `Join me at "${currentBenchName}" bench in Chaya Kada!`;
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent(currentInviteLink)}`, '_blank');
+    }
+
+    // Event listeners
+    document.getElementById('generate-invite')?.addEventListener('click', generateInviteLink);
+
+    // Close modal when clicking outside
+    window.onclick = function (event) {
+        const modal = document.getElementById('invite-modal');
+        if (event.target == modal) {
+            closeInviteModal();
+        }
+    }
+
+    // Utility functions
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
             }
-        }, 300);
-    }, 3000);
-}
+        }
+        return cookieValue;
+    }
+
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type} show`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    document.body.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
 </script>
 
 <style>
-/* Enhanced Chat Finder Styles */
-.chat-finder-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem;
-}
-
-.chat-options h1 {
-    text-align: center;
-    color: var(--accent-color);
-    margin-bottom: 2rem;
-}
-
-.chat-type-selector {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    margin-bottom: 3rem;
-}
-
-/* Enhanced Stranger Chat Option */
-.stranger-option {
-    background: linear-gradient(135deg, rgba(255, 107, 107, 0.1), var(--surface-color));
-    border: 2px solid rgba(255, 107, 107, 0.3);
-}
-
-.option-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-}
-
-.online-indicator {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: rgba(0, 0, 0, 0.3);
-    padding: 0.25rem 0.75rem;
-    border-radius: 15px;
-    font-size: 0.9rem;
-}
-
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #ccc;
-}
-
-.status-dot.online {
-    background: #4CAF50;
-    animation: pulse 2s infinite;
-}
-
-.status-dot.offline {
-    background: #f44336;
-}
-
-.stranger-stats {
-    display: flex;
-    justify-content: space-around;
-    margin: 1rem 0;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: var(--border-radius);
-}
-
-.stat-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-}
-
-.stat-item i {
-    color: var(--accent-color);
-}
-
-/* Searching Status */
-.searching-status {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    align-items: center;
-}
-
-.searching-animation {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--accent-color);
-}
-
-.spinner-small {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--border-color);
-    border-top: 2px solid var(--accent-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-.spinner-xs {
-    width: 12px;
-    height: 12px;
-    border: 2px solid transparent;
-    border-top: 2px solid currentColor;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-.searching-inline {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-/* Enhanced Chat Options */
-.chat-option {
-    background: var(--surface-color);
-    padding: 2rem;
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border-color);
-    text-align: center;
-    transition: all 0.3s ease;
-}
-
-.chat-option:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
-}
-
-.bench-option {
-    background: linear-gradient(135deg, rgba(139, 69, 19, 0.1), var(--surface-color));
-    border: 2px solid rgba(139, 69, 19, 0.3);
-}
-
-.chat-option h3 {
-    color: var(--secondary-color);
-    margin-bottom: 1rem;
-}
-
-.chat-option p {
-    color: var(--text-secondary);
-    margin-bottom: 1.5rem;
-}
-
-.btn-large {
-    padding: 1rem 2rem;
-    font-size: 1.2rem;
-    margin-top: 1rem;
-    min-width: 200px;
-}
-
-/* Quick Join Section */
-.quick-join-section {
-    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), var(--surface-color));
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    padding: 2rem;
-    border-radius: var(--border-radius);
-    margin-bottom: 2rem;
-}
-
-.quick-join-section h3 {
-    color: #4CAF50;
-    margin-bottom: 0.5rem;
-}
-
-.quick-join-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
-}
-
-.quick-join-card {
-    background: rgba(76, 175, 80, 0.1);
-    padding: 1rem;
-    border-radius: var(--border-radius);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.chat-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-}
-
-/* Enhanced Bench Cards */
-.bench-card {
-    background: rgba(45, 45, 45, 0.5);
-    padding: 1.5rem;
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border-color);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: all 0.3s ease;
-}
-
-.bench-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
-}
-
-.bench-card.stranger-chat {
-    border-left: 4px solid #FF6B6B;
-    background: linear-gradient(135deg, rgba(255, 107, 107, 0.1), rgba(45, 45, 45, 0.5));
-}
-
-.bench-card.private-bench {
-    border-left: 4px solid var(--accent-color);
-    background: linear-gradient(135deg, rgba(139, 69, 19, 0.1), rgba(45, 45, 45, 0.5));
-}
-
-.bench-info h4 {
-    color: var(--accent-color);
-    margin-bottom: 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.bench-meta,
-.chat-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.bench-meta span,
-.chat-meta span {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.chat-expires {
-    color: #FF6B6B !important;
-    font-weight: bold;
-}
-
-.bench-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-direction: column;
-}
-
-/* No Chats Section */
-.no-chats-section {
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    padding: 3rem;
-    text-align: center;
-}
-
-.no-chats-content {
-    color: var(--text-secondary);
-}
-
-.no-chats-content i {
-    font-size: 4rem;
-    color: var(--accent-color);
-    margin-bottom: 1rem;
-}
-
-.no-chats-content h3 {
-    color: var(--text-color);
-    margin-bottom: 1rem;
-}
-
-/* Connection Toast */
-.connection-toast {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    padding: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transform: translateY(100px);
-    opacity: 0;
-    transition: all 0.3s ease;
-    z-index: 1000;
-}
-
-.connection-toast.show {
-    transform: translateY(0);
-    opacity: 1;
-}
-
-.connection-toast.warning {
-    border-left: 4px solid #FF9800;
-}
-
-.connection-toast.error {
-    border-left: 4px solid #f44336;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
+    /* Enhanced Chat Finder Styles */
     .chat-finder-container {
-        padding: 1rem;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
     }
-    
+
+    .chat-options h1 {
+        text-align: center;
+        color: var(--accent-color);
+        margin-bottom: 2rem;
+    }
+
     .chat-type-selector {
-        grid-template-columns: 1fr;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        margin-bottom: 3rem;
     }
-    
+
+    /* Enhanced Stranger Chat Option */
+    .stranger-option {
+        background: linear-gradient(135deg, rgba(255, 107, 107, 0.1), var(--surface-color));
+        border: 2px solid rgba(255, 107, 107, 0.3);
+    }
+
     .option-header {
-        flex-direction: column;
-        gap: 0.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
     }
-    
+
+    .online-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.25rem 0.75rem;
+        border-radius: 15px;
+        font-size: 0.9rem;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ccc;
+    }
+
+    .status-dot.online {
+        background: #4CAF50;
+        animation: pulse 2s infinite;
+    }
+
+    .status-dot.offline {
+        background: #f44336;
+    }
+
     .stranger-stats {
+        display: flex;
+        justify-content: space-around;
+        margin: 1rem 0;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: var(--border-radius);
+    }
+
+    .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+
+    .stat-item i {
+        color: var(--accent-color);
+    }
+
+    /* Searching Status */
+    .searching-status {
+        display: flex;
         flex-direction: column;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .searching-animation {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--accent-color);
+    }
+
+    .spinner-small {
+        width: 20px;
+        height: 20px;
+        border: 2px solid var(--border-color);
+        border-top: 2px solid var(--accent-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    .spinner-xs {
+        width: 12px;
+        height: 12px;
+        border: 2px solid transparent;
+        border-top: 2px solid currentColor;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    .searching-inline {
+        display: flex;
+        align-items: center;
         gap: 0.5rem;
     }
-    
-    .bench-card {
-        flex-direction: column;
-        gap: 1rem;
+
+    /* Enhanced Chat Options */
+    .chat-option {
+        background: var(--surface-color);
+        padding: 2rem;
+        border-radius: var(--border-radius);
+        border: 1px solid var(--border-color);
         text-align: center;
+        transition: all 0.3s ease;
     }
-    
-    .bench-actions {
-        flex-direction: row;
-        justify-content: center;
+
+    .chat-option:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
     }
-    
+
+    .bench-option {
+        background: linear-gradient(135deg, rgba(139, 69, 19, 0.1), var(--surface-color));
+        border: 2px solid rgba(139, 69, 19, 0.3);
+    }
+
+    .chat-option h3 {
+        color: var(--secondary-color);
+        margin-bottom: 1rem;
+    }
+
+    .chat-option p {
+        color: var(--text-secondary);
+        margin-bottom: 1.5rem;
+    }
+
+    .btn-large {
+        padding: 1rem 2rem;
+        font-size: 1.2rem;
+        margin-top: 1rem;
+        min-width: 200px;
+    }
+
+    /* Quick Join Section */
+    .quick-join-section {
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), var(--surface-color));
+        border: 1px solid rgba(76, 175, 80, 0.3);
+        padding: 2rem;
+        border-radius: var(--border-radius);
+        margin-bottom: 2rem;
+    }
+
+    .quick-join-section h3 {
+        color: #4CAF50;
+        margin-bottom: 0.5rem;
+    }
+
     .quick-join-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .quick-join-card {
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
         gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .quick-join-card {
+        background: rgba(76, 175, 80, 0.1);
+        padding: 1rem;
+        border-radius: var(--border-radius);
+        border: 1px solid rgba(76, 175, 80, 0.3);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .chat-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+
+    /* Enhanced Bench Cards */
+    .bench-card {
+        background: rgba(45, 45, 45, 0.5);
+        padding: 1.5rem;
+        border-radius: var(--border-radius);
+        border: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.3s ease;
+    }
+
+    .bench-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    .bench-card.stranger-chat {
+        border-left: 4px solid #FF6B6B;
+        background: linear-gradient(135deg, rgba(255, 107, 107, 0.1), rgba(45, 45, 45, 0.5));
+    }
+
+    .bench-card.private-bench {
+        border-left: 4px solid var(--accent-color);
+        background: linear-gradient(135deg, rgba(139, 69, 19, 0.1), rgba(45, 45, 45, 0.5));
+    }
+
+    .bench-info h4 {
+        color: var(--accent-color);
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .bench-meta,
+    .chat-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .bench-meta span,
+    .chat-meta span {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .chat-expires {
+        color: #FF6B6B !important;
+        font-weight: bold;
+    }
+
+    .bench-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-direction: column;
+    }
+
+    /* No Chats Section */
+    .no-chats-section {
+        background: var(--surface-color);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        padding: 3rem;
         text-align: center;
     }
-}
+
+    .no-chats-content {
+        color: var(--text-secondary);
+    }
+
+    .no-chats-content i {
+        font-size: 4rem;
+        color: var(--accent-color);
+        margin-bottom: 1rem;
+    }
+
+    .no-chats-content h3 {
+        color: var(--text-color);
+        margin-bottom: 1rem;
+    }
+
+    /* Connection Toast */
+    .connection-toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: var(--surface-color);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        padding: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        transform: translateY(100px);
+        opacity: 0;
+        transition: all 0.3s ease;
+        z-index: 1000;
+    }
+
+    .connection-toast.show {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    .connection-toast.warning {
+        border-left: 4px solid #FF9800;
+    }
+
+    .connection-toast.searching {
+        border-left: 4px solid #4CAF50;
+    }
+
+    .connection-toast.error {
+        border-left: 4px solid #f44336;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .chat-finder-container {
+            padding: 1rem;
+        }
+
+        .chat-type-selector {
+            grid-template-columns: 1fr;
+        }
+
+        .option-header {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .stranger-stats {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .bench-card {
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
+        }
+
+        .bench-actions {
+            flex-direction: row;
+            justify-content: center;
+        }
+
+        .quick-join-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .quick-join-card {
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
+        }
+    }
 </style>
 {% endblock %}

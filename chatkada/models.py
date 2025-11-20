@@ -120,7 +120,7 @@ class ChatRoom(models.Model):
     name = models.CharField(max_length=100, default="Chat Room")
     bench_name = models.CharField(max_length=100, blank=True, null=True)
     room_type = models.CharField(max_length=15, choices=ROOM_TYPES, default='stranger')
-    max_users = models.IntegerField(default=4)
+    max_users = models.IntegerField(default=2)  # 2 for secure 1-on-1 stranger chats, can be overridden for benches
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # Add expiration field
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_rooms')
