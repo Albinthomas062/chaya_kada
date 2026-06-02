@@ -446,7 +446,8 @@ def find_chat(request):
                 name=f"Private Bench: {bench_name}",
                 bench_name=bench_name,
                 room_type='private_bench',
-                created_by=request.user
+                created_by=request.user,
+                max_users=4  # Allow up to 4 people in private benches
             )
             new_room.participants.add(request.user)
             
@@ -483,6 +484,24 @@ def find_chat(request):
         'user_benches': user_benches,
         'user_stranger_chats': all_user_stranger_chats
     })
+
+@login_required
+def create_private_bench(request):
+    """Create a new private bench"""
+    if request.method == 'POST':
+        bench_name = request.POST.get('bench_name')
+        if bench_name:
+            new_room = ChatRoom.objects.create(
+                name=bench_name,
+                room_type='private_bench',
+                created_by=request.user,
+                max_users=4  # Allow up to 4 people in private benches
+            )
+            new_room.participants.add(request.user)
+            messages.success(request, f'Private bench "{bench_name}" created successfully!')
+            return redirect('chat_room', room_id=new_room.room_id)
+    
+    return redirect('find_chat')
 
 @login_required
 def chat_room(request, room_id):
@@ -908,27 +927,115 @@ def toggle_chat_availability(request):
     return redirect('profile')
 @login_required
 def create_bench_invite(request, room_id):
-    """Create an invite link for a private bench (placeholder)"""
-    messages.info(request, 'Invite feature coming soon!')
-    return redirect('find_chat')
+    """Create an invite link for a private bench"""
+    try:
+        room = get_object_or_404(ChatRoom, room_id=room_id)
+        
+        # Verify user is room creator
+        if room.created_by != request.user:
+            return JsonResponse({
+                'success': False,
+                'error': 'Only the room creator can create invites'
+            })
+        
+        # Verify it's a private bench
+        if room.room_type != 'private_bench':
+            return JsonResponse({
+                'success': False,
+                'error': 'Invites can only be created for private benches'
+            })
+        
+        if request.method == 'POST':
+            max_uses = int(request.POST.get('max_uses', 10))
+            
+            # Handle expiration in minutes (new) or days (legacy)
+            expires_in_minutes = request.POST.get('expires_in_minutes')
+            
+            if expires_in_minutes:
+                expiration_delta = timedelta(minutes=int(expires_in_minutes))
+            else:
+                expires_in_days = int(request.POST.get('expires_in_days', 7))
+                expiration_delta = timedelta(days=expires_in_days)
+            
+            # Create new invite
+            invite = BenchInvite.objects.create(
+                room=room,
+                created_by=request.user,
+                max_uses=max_uses,
+                expires_at=timezone.now() + expiration_delta
+            )
+            
+            # Build full URL
+            invite_url = request.build_absolute_uri(
+                reverse('join_bench', kwargs={'invite_code': invite.invite_code})
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'invite_url': invite_url,
+                'invite_code': invite.invite_code,
+                'expires_at': invite.expires_at.strftime('%Y-%m-%d %H:%M'),
+                'max_uses': invite.max_uses,
+                'current_uses': invite.current_uses
+            })
+        
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
 
 @login_required
 def join_bench(request, invite_code):
-    """Join a private bench using invite code (placeholder)"""
-    messages.info(request, 'Join via invite feature coming soon!')
-    return redirect('find_chat')
+    """Join a private bench using invite code"""
+    try:
+        # Look up invite
+        invite = get_object_or_404(BenchInvite, invite_code=invite_code)
+        
+        # Validate invite is active and not expired
+        if not invite.is_valid():
+            if invite.is_expired():
+                messages.error(request, 'This invite link has expired.')
+            else:
+                messages.error(request, 'This invite link is no longer active.')
+            return redirect('find_chat')
+        
+        room = invite.room
+        
+        # Check if user is already in the room
+        if request.user in room.participants.all():
+            messages.info(request, 'You are already in this bench!')
+            return redirect('chat_room', room_id=room.room_id)
+        
+        # Check if room is full
+        if room.is_full:
+            messages.error(request, 'This bench is full.')
+            return redirect('find_chat')
+        
+        # Add user to room
+        room.participants.add(request.user)
+        
+        # Increment invite usage
+        invite.current_uses += 1
+        if invite.current_uses >= invite.max_uses:
+            invite.status = 'used'
+        invite.save()
+        
+        # Send system message
+        ChatMessage.objects.create(
+            room=room,
+            user=request.user,
+            message_type='system',
+            content=f"{request.user.username} joined the bench via invite"
+        )
+        
+        messages.success(request, f'Welcome to "{room.bench_name}"!')
+        return redirect('chat_room', room_id=room.room_id)
+        
+    except Exception as e:
+        messages.error(request, f'Error joining bench: {str(e)}')
+        return redirect('find_chat')
 
-@login_required
-def accept_invitation(request, invitation_id):
-    """Accept a chat invitation (placeholder)"""
-    messages.info(request, 'Invitation feature coming soon!')
-    return redirect('find_chat')
 
-@login_required
-def decline_invitation(request, invitation_id):
-    """Decline a chat invitation (placeholder)"""
-    messages.info(request, 'Invitation feature coming soon!')
-    return redirect('find_chat')
 
 @login_required
 def toggle_chat_availability(request):

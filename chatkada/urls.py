@@ -13,6 +13,7 @@ urlpatterns = [
     
     # Chat URLs
     path('find-chat/', views.find_chat, name='find_chat'),
+    path('create-private-bench/', views.create_private_bench, name='create_private_bench'),
     path('chat/<uuid:room_id>/', views.chat_room, name='chat_room'),
     path('send-chat-message/', views.send_chat_message, name='send_chat_message'),
     path('get-chat-messages/<uuid:room_id>/', views.get_chat_messages, name='get_chat_messages'),
@@ -26,6 +27,10 @@ urlpatterns = [
     path('get-online-status/', views.get_online_status, name='get_online_status'),
     path('find-stranger/', views.find_stranger_chat, name='find_stranger_chat'),
     
+    # Bench Invite URLs
+    path('create-bench-invite/<uuid:room_id>/', views.create_bench_invite, name='create_bench_invite'),
+    path('join-bench/<str:invite_code>/', views.join_bench, name='join_bench'),
+    
     # Item management for admin
     path('custom-admin/login/', views.custom_admin_login, name='custom_admin_login'),
     path('custom-admin/', views.custom_admin_dashboard, name='custom_admin_dashboard'),
@@ -33,6 +38,7 @@ urlpatterns = [
     path('custom-admin/items/add/', views.add_item, name='add_item'),
     path('custom-admin/items/<int:item_id>/edit/', views.edit_item, name='edit_item'),
     path('custom-admin/items/<int:item_id>/delete/', views.delete_item, name='delete_item'),
+    
     # Challenge management for admin
     path('custom-admin/challenges/', views.manage_challenges, name='manage_challenges'),
     path('custom-admin/challenges/assign/', views.assign_challenge, name='assign_challenge'),

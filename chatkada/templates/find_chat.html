@@ -48,11 +48,12 @@
                 {% endif %}
             </div>
 
-            <!-- Private Bench Option -->
+            <!-- Enhanced Private Bench Option -->
             <div class="chat-option bench-option">
-                <h3><i class="fas fa-chair"></i> Create Your Bench</h3>
-                <p>Create a private bench and invite your friends</p>
-                <form method="post" id="bench-form">
+                <h3><i class="fas fa-users"></i> Create Private Bench</h3>
+                <p>Start a private group chat and invite your friends</p>
+
+                <form method="post" action="{% url 'create_private_bench' %}">
                     {% csrf_token %}
                     <input type="hidden" name="chat_type" value="private_bench">
 
@@ -195,65 +196,92 @@
     </div>
 </div>
 
-<!-- Invite Modal (same as before) -->
-<div id="invite-modal" class="modal">
-    <div class="modal-content">
-        <span class="close" onclick="closeInviteModal()">&times;</span>
-        <h3 id="modal-title">Invite Friends to Your Bench</h3>
 
-        <div class="invite-settings">
-            <div class="form-group">
-                <label for="max_uses">Maximum uses:</label>
-                <select id="max_uses">
+<!-- Invite Modal -->
+<div id="invite-modal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:1000; justify-content:center; align-items:center;">
+
+    <div class="modal-content"
+        style="background:#fff; width:420px; max-width:90%; border-radius:10px; padding:25px; box-shadow:0 8px 18px rgba(0,0,0,0.22); position:relative;">
+
+        <span class="close" onclick="closeInviteModal()"
+            style="position:absolute; top:10px; right:12px; font-size:28px; cursor:pointer; color:#333;">
+            &times;
+        </span>
+
+        <h3 id="modal-title" style="text-align:center; margin-bottom:20px; font-weight:600; color:#222;">
+            Invite Friends to Your Bench
+        </h3>
+
+        <div class="invite-settings" style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Max Users -->
+            <div class="form-group" style="display:flex; flex-direction:column; gap:6px;">
+                <label for="max_uses" style="font-size:14px; font-weight:500; color:#333;">Maximum uses:</label>
+                <select id="max_uses" style="padding:8px 10px; border-radius:6px; border:1px solid #bbb; color:#333;">
+                    <option value="4" selected>4 people</option>
                     <option value="5">5 people</option>
-                    <option value="10" selected>10 people</option>
-                    <option value="20">20 people</option>
-                    <option value="50">50 people</option>
                 </select>
             </div>
 
-            <div class="form-group">
-                <label for="expires_in_days">Expires in:</label>
-                <select id="expires_in_days">
-                    <option value="1">1 day</option>
-                    <option value="7" selected>1 week</option>
-                    <option value="30">1 month</option>
+            <!-- Expires -->
+            <div class="form-group" style="display:flex; flex-direction:column; gap:6px;">
+                <label for="expires_in_minutes" style="font-size:14px; font-weight:500; color:#333;">
+                    Expires in:
+                </label>
+                <select id="expires_in_minutes"
+                    style="padding:8px 10px; border-radius:6px; border:1px solid #bbb; color:#333;">
+                    <option value="" selected hidden>Select time</option>
+                    <option value="60">1 hour</option>
+                    <option value="30">30 minutes</option>
+                    <option value="120">2 hours</option>
+                    <option value="1440">1 day</option>
                 </select>
             </div>
         </div>
 
-        <button id="generate-invite" class="btn btn-primary">
+        <button id="generate-invite" class="btn btn-primary"
+            style="width:100%; margin-top:18px; padding:10px; border:none; border-radius:7px; background:#007bff; color:white; font-size:15px; font-weight:600; cursor:pointer;">
             <i class="fas fa-link"></i> Generate Invite Link
         </button>
 
-        <div id="invite-result" class="invite-result" style="display: none;">
-            <h4>Share this link with your friends:</h4>
-            <div class="invite-link-container">
-                <input type="text" id="invite-link" readonly>
-                <button onclick="copyInviteLink()" class="btn btn-sm btn-secondary">
+        <!-- Result Section -->
+        <div id="invite-result" class="invite-result" style="display:none; margin-top:22px;">
+            <h4 style="font-size:15px; font-weight:600; margin-bottom:12px; color:#333;">Share this link with your
+                friends:</h4>
+
+            <div class="invite-link-container" style="display:flex; gap:8px; align-items:center; margin-bottom:15px;">
+                <input type="text" id="invite-link"
+                    style="flex:1; padding:8px; border:1px solid #bbb; border-radius:6px; font-size:14px; color:#333;"
+                    readonly>
+                <button onclick="copyInviteLink()"
+                    style="padding:8px 12px; background:#6c757d; color:white; border:none; border-radius:6px; cursor:pointer;">
                     <i class="fas fa-copy"></i> Copy
                 </button>
             </div>
 
             <div class="social-share">
-                <h4>Share on social media:</h4>
-                <div class="social-buttons">
-                    <button onclick="shareOnWhatsApp()" class="btn btn-sm btn-success">
+                <h4 style="font-size:15px; font-weight:600; margin-bottom:8px; color:#333;">Share on social media:</h4>
+                <div class="social-buttons" style="display:flex; gap:10px; margin-bottom:16px;">
+                    <button onclick="shareOnWhatsApp()"
+                        style="flex:1; padding:9px; font-weight:600; border-radius:6px; background:#25D366; color:white; border:none; cursor:pointer;">
                         <i class="fab fa-whatsapp"></i> WhatsApp
                     </button>
-                    <button onclick="shareOnTelegram()" class="btn btn-sm btn-info">
+                    <button onclick="shareOnTelegram()"
+                        style="flex:1; padding:9px; font-weight:600; border-radius:6px; background:#229ED9; color:white; border:none; cursor:pointer;">
                         <i class="fab fa-telegram"></i> Telegram
                     </button>
-                    <button onclick="shareOnTwitter()" class="btn btn-sm btn-primary">
+                    <button onclick="shareOnTwitter()"
+                        style="flex:1; padding:9px; font-weight:600; border-radius:6px; background:#1DA1F2; color:white; border:none; cursor:pointer;">
                         <i class="fab fa-twitter"></i> Twitter
                     </button>
                 </div>
             </div>
 
-            <div class="invite-info">
-                <p><strong>Expires:</strong> <span id="invite-expires"></span></p>
-                <p><strong>Max uses:</strong> <span id="invite-max-uses"></span></p>
-                <p><strong>Current uses:</strong> <span id="invite-current-uses"></span></p>
+            <div class="invite-info"
+                style="background:#f8f9fa; padding:12px; border-radius:6px; font-size:14px; color:#333;">
+                <p style="margin:4px 0;"><strong>Expires:</strong> <span id="invite-expires"></span></p>
+                <p style="margin:4px 0;"><strong>Max uses:</strong> <span id="invite-max-uses"></span></p>
+                <p style="margin:4px 0;"><strong>Current uses:</strong> <span id="invite-current-uses"></span></p>
             </div>
         </div>
     </div>
@@ -545,7 +573,7 @@
         currentRoomId = roomId;
         currentBenchName = benchName;
         document.getElementById('modal-title').textContent = `Invite Friends to "${benchName}"`;
-        document.getElementById('invite-modal').style.display = 'block';
+        document.getElementById('invite-modal').style.display = 'flex';
         document.getElementById('invite-result').style.display = 'none';
     }
 
@@ -555,7 +583,18 @@
 
     function generateInviteLink() {
         const maxUses = document.getElementById('max_uses').value;
-        const expiresInDays = document.getElementById('expires_in_days').value;
+        const expiresInMinutes = document.getElementById('expires_in_minutes').value;
+
+        // Convert minutes to days for backend compatibility if needed, or send as is.
+        // Assuming we need to send 'expires_in_days' to match the backend URL pattern /create-bench-invite/
+        // If the backend expects days, we might need to adjust. 
+        // For now, I'll send it as 'expires_in_minutes' in the body and hope the backend handles it or I'll stick to the previous working logic.
+        // The previous working logic used 'expires_in_days'. 
+        // Let's try to be smart: if the value is > 30, it's probably minutes. 
+        // But the backend likely expects a specific parameter name.
+        // I'll send both to be safe or just use the one the user provided in their snippet.
+
+        const bodyData = `max_uses=${maxUses}&expires_in_minutes=${expiresInMinutes}`;
 
         fetch(`/create-bench-invite/${currentRoomId}/`, {
             method: 'POST',
@@ -563,7 +602,7 @@
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie('csrftoken')
             },
-            body: `max_uses=${maxUses}&expires_in_days=${expiresInDays}`
+            body: bodyData
         })
             .then(response => response.json())
             .then(data => {

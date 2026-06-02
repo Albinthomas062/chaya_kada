@@ -390,16 +390,23 @@ class EnhancedAudioController {
         });
 
         const currentSongElement = document.getElementById('current-song');
-        currentTime: this.audioElements.music?.currentTime || 0,
+        if (currentSongElement) {
+            const currentSong = this.nostalgicSongs[this.currentSongIndex % this.nostalgicSongs.length];
+            currentSongElement.textContent = currentSong.name;
+        }
+
+        const musicState = {
+            currentSongIndex: this.currentSongIndex,
+            currentTime: this.audioElements.music?.currentTime || 0,
             enabled: this.settings.music.enabled,
-                volume: this.settings.music.volume,
-                    timestamp: Date.now()
-    };
-            localStorage.setItem('chayakada_music_state', JSON.stringify(musicState));
-        } catch (e) {
-    console.log('Failed to save music state:', e);
-}
+            volume: this.settings.music.volume,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('chayakada_music_state', JSON.stringify(musicState));
+    } catch(e) {
+        console.log('Failed to save music state:', e);
     }
+}
 
 // Restore music playback state from localStorage
 restoreMusicState() {
