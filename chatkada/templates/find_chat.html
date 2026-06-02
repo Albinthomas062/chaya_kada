@@ -69,6 +69,23 @@
                     </button>
                 </form>
             </div>
+
+            <!-- New Theatre Room Option -->
+            <div class="chat-option theatre-option" style="background: linear-gradient(135deg, rgba(138, 43, 226, 0.1), var(--surface-color)); border: 2px solid rgba(138, 43, 226, 0.3);">
+                <h3><i class="fas fa-film"></i> Create Theatre</h3>
+                <p>Host a movie night or watch live TV with up to 10 friends</p>
+                <form method="post" action="{% url 'create_theatre_room' %}">
+                    {% csrf_token %}
+                    <div class="bench-name-input">
+                        <label for="theatre_name">Theatre Name:</label>
+                        <input type="text" name="theatre_name" id="theatre_name"
+                            placeholder="e.g., Movie Night, Live Sports..." maxlength="50" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="background: #8a2be2; margin-top: 10px; width: 100%;">
+                        <i class="fas fa-play"></i> Open Theatre
+                    </button>
+                </form>
+            </div>
         </div>
 
         <!-- Quick Join Section -->
@@ -732,7 +749,7 @@
 
     .chat-type-selector {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 2rem;
         margin-bottom: 3rem;
     }
@@ -844,6 +861,146 @@
         border: 1px solid var(--border-color);
         text-align: center;
         transition: all 0.3s ease;
+    }
+
+    /* Input & Select fields inside Chat Options */
+    .bench-name-input {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        text-align: left;
+        margin-bottom: 1.5rem;
+    }
+    
+    .bench-name-input label {
+        font-weight: 500;
+        color: var(--text-color, #e0e0e0);
+    }
+
+    .bench-name-input input[type="text"],
+    .bench-name-input select {
+        width: 100%;
+        padding: 0.8rem 1rem;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
+        border-radius: var(--border-radius, 8px);
+        color: var(--text-color, #ffffff);
+        font-size: 1rem;
+        transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .bench-name-input input[type="text"]::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .bench-name-input input[type="text"]:focus,
+    .bench-name-input select:focus {
+        outline: none;
+        border-color: var(--accent-color, #ffb347);
+        box-shadow: 0 0 0 2px rgba(255, 179, 71, 0.2);
+    }
+    
+    .bench-name-input select option {
+        background-color: var(--surface-color, #1a1a1a);
+        color: var(--text-color, #ffffff);
+        padding: 10px;
+    }
+
+    .bench-name-input small {
+        font-size: 0.8rem;
+        color: var(--text-secondary, #aaaaaa);
+    }
+
+    /* Custom Dropdown Styles */
+    .custom-dropdown {
+        position: relative;
+        width: 100%;
+        user-select: none;
+    }
+    
+    .custom-dropdown-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        padding: 0.8rem 1rem;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
+        border-radius: var(--border-radius, 8px);
+        color: var(--text-color, #ffffff);
+        font-size: 1rem;
+        cursor: pointer;
+        transition: border-color 0.3s;
+    }
+    
+    .custom-dropdown-header:hover {
+        border-color: var(--accent-color, #ffb347);
+    }
+    
+    .custom-dropdown-list-wrapper {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--surface-color, #2a2a2a);
+        border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
+        border-radius: var(--border-radius, 8px);
+        margin-top: 5px;
+        z-index: 1000;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+    }
+    
+    .custom-dropdown.open .custom-dropdown-list-wrapper {
+        display: block;
+    }
+    
+    .custom-dropdown-search {
+        padding: 10px;
+        border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    }
+    
+    .custom-dropdown-search input {
+        width: 100%;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        color: #fff;
+        outline: none;
+    }
+    
+    .custom-dropdown-search input:focus {
+        border-color: var(--accent-color, #ffb347);
+    }
+    
+    .custom-dropdown-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        max-height: 250px;
+        overflow-y: auto;
+    }
+    
+    .custom-dropdown-item {
+        padding: 10px 15px;
+        cursor: pointer;
+        color: #e0e0e0;
+        transition: background 0.2s;
+    }
+    
+    .custom-dropdown-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+    
+    .custom-dropdown-item.disabled {
+        color: #777;
+        cursor: default;
+    }
+    
+    .custom-dropdown-item.disabled:hover {
+        background: transparent;
     }
 
     .chat-option:hover {
@@ -1075,4 +1232,5 @@
         }
     }
 </style>
+
 {% endblock %}

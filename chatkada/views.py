@@ -19,8 +19,11 @@ from .forms import SimpleUserCreationForm
 import json
 import uuid
 # views.py
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.contrib.auth.models import User
+import requests as req_lib
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def home(request):
     return render(request, 'home.html')
@@ -1410,3 +1413,119 @@ def assign_challenge(request):
     else:
         form = AssignChallengeForm()
     return render(request, "custom_admin/assign_challenges.html", {"form": form})
+
+# ——— Theatre Room Views ———
+from urllib.request import Request, urlopen
+from urllib.error import URLError
+from django.http import HttpResponse
+
+@login_required
+def create_theatre_room(request):
+    """Create a new theatre room"""
+    theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
+    channel_url = None
+    
+    if request.method == 'POST':
+        theatre_name = request.POST.get('theatre_name', theatre_name)
+        channel_url = request.POST.get('channel_url')
+        if not theatre_name:
+            theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
+        
+    chat_room = ChatRoom.objects.create(
+        name=theatre_name,
+        room_type='theatre',
+        created_by=request.user,
+        max_users=50,  # Or any appropriate number
+        channel_url=channel_url
+    )
+    return redirect('theatre_room_view', room_id=chat_room.room_id)
+
+@login_required
+def theatre_room_view(request, room_id):
+    """View for the theatre UI"""
+    room = get_object_or_404(ChatRoom, room_id=room_id, room_type='theatre')
+    
+    # Initialize 10 seats if they don't exist
+    from .models import TheatreSeat
+    for i in range(1, 11):
+        TheatreSeat.objects.get_or_create(room=room, seat_number=i)
+        
+    seats = TheatreSeat.objects.filter(room=room).order_by('seat_number')
+    
+    context = {
+        'room': room,
+        'seats': seats,
+    }
+    return render(request, 'theatre_room.html', context)
+
+
+@csrf_exempt
+def proxy_m3u(request):
+    """Proxy view to fetch M3U playlists and TS segments, bypassing CORS."""
+    url = request.GET.get('url')
+    if not url:
+        return HttpResponse("Missing URL", status=400)
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive',
+        'Referer': url,
+    }
+
+    try:
+        resp = req_lib.get(
+            url,
+            headers=headers,
+            timeout=15,
+            verify=False,  # Many IPTV streams have self-signed certs
+            stream=True,
+            allow_redirects=True,
+        )
+        resp.raise_for_status()
+
+        content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
+
+        # For M3U/M3U8 playlists — read fully and rewrite relative URLs to go through the proxy
+        if 'm3u' in content_type or url.endswith('.m3u8') or url.endswith('.m3u'):
+            content = resp.content.decode('utf-8', errors='replace')
+            # Rewrite relative TS segment / sub-playlist URLs so they also pass through proxy
+            base_url = url.rsplit('/', 1)[0] + '/'
+            rewritten_lines = []
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#'):
+                    if stripped.startswith('http://') or stripped.startswith('https://'):
+                        # Already absolute — proxy it
+                        rewritten_lines.append('/proxy-m3u/?url=' + req_lib.utils.quote(stripped, safe=''))
+                    else:
+                        # Relative URL — make absolute then proxy it
+                        abs_url = base_url + stripped
+                        rewritten_lines.append('/proxy-m3u/?url=' + req_lib.utils.quote(abs_url, safe=''))
+                else:
+                    rewritten_lines.append(line)
+            rewritten = '\n'.join(rewritten_lines)
+            response = HttpResponse(rewritten, content_type='application/vnd.apple.mpegurl; charset=utf-8')
+        else:
+            # For TS segments and other binary content — stream it
+            def stream_content():
+                for chunk in resp.iter_content(chunk_size=8192):
+                    yield chunk
+            response = StreamingHttpResponse(stream_content(), content_type=content_type)
+
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Headers'] = '*'
+        response['Cache-Control'] = 'no-cache'
+        return response
+
+    except req_lib.exceptions.SSLError as e:
+        return HttpResponse(f"SSL Error: {str(e)}", status=502)
+    except req_lib.exceptions.ConnectionError as e:
+        return HttpResponse(f"Connection Error: {str(e)}", status=502)
+    except req_lib.exceptions.Timeout:
+        return HttpResponse("Stream timed out", status=504)
+    except req_lib.exceptions.HTTPError as e:
+        return HttpResponse(f"Upstream HTTP error: {str(e)}", status=502)
+    except Exception as e:
+        return HttpResponse(f"Proxy error: {str(e)}", status=500)

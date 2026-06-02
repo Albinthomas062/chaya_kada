@@ -1,0 +1,776 @@
+{% load static %}
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CINEPHILE - Private Screening</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&amp;family=Inter:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <style>
+        .rain-drop {
+            position: absolute;
+            background: linear-gradient(transparent, rgba(255, 255, 255, 0.4), transparent);
+            width: 2px;
+            height: 20px;
+            animation: fall linear infinite;
+            pointer-events: none;
+            filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
+        }
+        @keyframes fall {
+            0% { transform: translateY(-100vh) rotate(10deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(10deg); opacity: 0; }
+        }
+    </style>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-fixed": "#dbe1ff",
+                    "outline-variant": "#4d4635",
+                    "outline": "#99907c",
+                    "surface-container-high": "#2a2a2a",
+                    "inverse-on-surface": "#313030",
+                    "tertiary": "#bfcdff",
+                    "on-tertiary-fixed": "#00174b",
+                    "secondary-container": "#920703",
+                    "on-secondary-fixed": "#410000",
+                    "surface-tint": "#e9c349",
+                    "on-surface": "#e5e2e1",
+                    "tertiary-fixed-dim": "#b4c5ff",
+                    "surface-container-low": "#1c1b1b",
+                    "secondary": "#ffb4a8",
+                    "on-primary": "#3c2f00",
+                    "on-secondary": "#690000",
+                    "error": "#ffb4ab",
+                    "secondary-fixed-dim": "#ffb4a8",
+                    "secondary-fixed": "#ffdad4",
+                    "on-tertiary": "#082b72",
+                    "inverse-surface": "#e5e2e1",
+                    "on-surface-variant": "#d0c5af",
+                    "on-background": "#e5e2e1",
+                    "background": "#131313",
+                    "primary-fixed": "#ffe088",
+                    "inverse-primary": "#735c00",
+                    "on-secondary-fixed-variant": "#920703",
+                    "surface-container": "#201f1f",
+                    "surface-bright": "#393939",
+                    "surface-container-lowest": "#0e0e0e",
+                    "on-primary-fixed": "#241a00",
+                    "on-primary-fixed-variant": "#574500",
+                    "tertiary-container": "#97b0ff",
+                    "on-error": "#690005",
+                    "primary-fixed-dim": "#e9c349",
+                    "primary-container": "#d4af37",
+                    "surface": "#131313",
+                    "on-primary-container": "#554300",
+                    "on-error-container": "#ffdad6",
+                    "on-secondary-container": "#ff9a8a",
+                    "on-tertiary-container": "#254188",
+                    "surface-variant": "#353534",
+                    "surface-container-highest": "#353534",
+                    "on-tertiary-fixed-variant": "#27438a",
+                    "primary": "#f2ca50",
+                    "error-container": "#93000a",
+                    "surface-dim": "#131313"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "margin": "32px",
+                    "lg": "48px",
+                    "xs": "4px",
+                    "md": "24px",
+                    "sm": "12px",
+                    "xl": "80px",
+                    "gutter": "24px",
+                    "base": "8px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "headline-xl": ["Montserrat"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Montserrat"],
+                    "headline-lg": ["Montserrat"],
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Montserrat"]
+            },
+            "fontSize": {
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "headline-xl": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(14, 14, 14, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .seat-selected {
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+        }
+        .screen-glow {
+            box-shadow: 0 -30px 100px 10px rgba(212, 175, 55, 0.3);
+            border-radius: 50%;
+        }
+        
+        /* 3D Theatre Styles */
+        .theatre-stage {
+            perspective: 1200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 2rem;
+            position: relative;
+        }
+        
+        .screen-container {
+            transform: rotateX(5deg) scale(0.95);
+            transform-style: preserve-3d;
+            box-shadow: 0 50px 100px -20px rgba(0,0,0,1), 0 0 40px rgba(255,255,255,0.1);
+            border-radius: 12px;
+            border: 4px solid #111;
+            border-bottom-width: 12px;
+            background: #000;
+            z-index: 10;
+            position: relative;
+        }
+        
+        .screen-container::after {
+            content: '';
+            position: absolute;
+            bottom: -12px;
+            left: 0;
+            right: 0;
+            height: 12px;
+            background: linear-gradient(to right, #0a0a0a, #1a1a1a, #0a0a0a);
+            border-radius: 0 0 12px 12px;
+        }
+        
+        /* Floor & Seating */
+        .theatre-floor {
+            transform: perspective(1000px) rotateX(45deg);
+            transform-style: preserve-3d;
+            margin-top: -80px;
+            padding-bottom: 100px;
+            position: relative;
+            z-index: 5;
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #353534;
+            border-radius: 10px;
+        }
+        
+        /* Custom Dropdown Overrides for Theatre UI */
+        .theatre-dropdown {
+            background: rgba(0, 0, 0, 0.8) !important;
+            border-color: rgba(255, 255, 255, 0.2) !important;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+      background: radial-gradient(circle at 50% 30%, #2a2a2a 0%, #0a0a0a 70%);
+    }
+  </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body class="text-on-background font-body-md overflow-x-hidden">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-white/10 shadow-xl flex justify-between items-center px-margin py-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">theater_comedy</span>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tighter text-primary">CINEPHILE</h1>
+</div>
+<div class="flex items-center gap-3">
+    <!-- Ambient Weather Controls -->
+    <button onclick="toggleWeather('rain')" id="btn-rain" class="bg-surface-container/50 text-white/50 hover:text-primary border border-white/10 hover:border-primary px-3 py-1.5 rounded-lg transition-all" title="Toggle Rain">
+        <span class="material-symbols-outlined text-[20px] align-middle">rainy</span>
+    </button>
+    <button onclick="toggleWeather('thunder')" id="btn-thunder" class="bg-surface-container/50 text-white/50 hover:text-primary border border-white/10 hover:border-primary px-3 py-1.5 rounded-lg transition-all" title="Toggle Thunder">
+        <span class="material-symbols-outlined text-[20px] align-middle">thunderstorm</span>
+    </button>
+    
+    <!-- Change Channel -->
+    <button onclick="showChannelSearch()" id="btn-search" class="bg-surface-container/50 text-white/80 hover:text-primary border border-white/10 hover:border-primary px-3 py-1.5 rounded-lg transition-all flex items-center gap-2" title="Change Channel">
+        <span class="material-symbols-outlined text-[18px]">search</span> <span class="text-xs font-bold uppercase tracking-wider hidden md:inline">Change Channel</span>
+    </button>
+    
+    <!-- Share Link -->
+    <button onclick="shareRoom()" id="btn-share" class="bg-primary/20 text-primary hover:bg-primary hover:text-black border border-primary px-3 py-1.5 rounded-lg transition-all flex items-center gap-2" title="Share Room Link">
+        <span class="material-symbols-outlined text-[18px]">ios_share</span> <span class="text-xs font-bold uppercase tracking-wider hidden md:inline">Invite</span>
+    </button>
+    
+    <button class="bg-red-800 text-white px-3 py-1.5 rounded-lg font-label-md text-label-md tracking-wider flex items-center gap-2 ml-2">
+        <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div> LIVE
+    </button>
+</div>
+</header>
+<main class="pt-20 pb-32 min-h-screen flex flex-col gap-8">
+<!-- Video Player Section -->
+<section class="px-margin relative pt-8">
+    
+    <!-- Stage Area -->
+    <div class="theatre-stage w-full max-w-5xl mx-auto">
+        <!-- Screen -->
+        <div class="screen-container relative w-full aspect-video group">
+            <video id="player" class="w-full h-full object-cover rounded-lg" controls autoplay></video>
+            
+            <!-- Controls overlay when not playing -->
+            <div id="video-overlay" class="absolute inset-0 flex flex-col justify-between p-6 bg-gradient-to-t from-black via-black/40 to-transparent transition-opacity duration-300 z-30">
+                <div class="flex justify-between items-start">
+                    <div class="flex gap-2">
+                        <span class="bg-red-800 text-white text-[10px] font-bold px-3 py-1 rounded shadow-lg uppercase tracking-wider">LIVE IPTV</span>
+                    </div>
+                </div>
+                
+                <div class="flex flex-col gap-4">
+                    <!-- Massive Center Channel Search Overlay -->
+                    <div class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md z-50 p-8" id="channel-selector-container">
+                        <!-- Close button -->
+                        <button onclick="closeChannelSearch()" class="absolute top-4 right-4 text-white/50 hover:text-white transition-colors" title="Close">
+                            <span class="material-symbols-outlined text-3xl">close</span>
+                        </button>
+                        <h2 class="text-3xl font-label-md text-primary tracking-widest uppercase mb-8 text-center drop-shadow-lg">Select a Live Channel</h2>
+                        <div class="relative w-full max-w-2xl" id="search-wrapper">
+                            <div>
+                                <select id="channel-list">
+                                    <option value="">Loading Channels...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Screen Ambient Glow -->
+        <div id="screen-glow" class="w-4/5 h-8 bg-primary/20 mx-auto mt-2 rounded-[100%] blur-xl screen-glow transition-opacity duration-1000"></div>
+    </div>
+    
+</section>
+
+<!-- Seat Grid Section -->
+<section class="px-margin flex flex-col items-center -mt-10 relative z-10">
+<div class="w-full max-w-3xl mx-auto theatre-floor">
+<h3 class="text-center font-label-md text-label-md text-outline uppercase tracking-widest mb-16" style="transform: rotateX(-45deg);">Select Your Seat</h3>
+
+<div class="flex flex-col gap-16 items-center w-full perspective-[800px]">
+    <!-- Front Row (Seats 1-7) -->
+    <div class="flex justify-center gap-6 w-full transform-style-3d">
+        {% for seat in seats|slice:":7" %}
+        {% if seat.occupant %}
+        <div class="flex flex-col items-center opacity-70 cursor-not-allowed group relative" data-seat="{{ seat.seat_number }}" style="transform: rotateX(-45deg) scale(0.95); transform-origin: bottom;">
+            <div class="relative w-12 h-14">
+                <!-- Backrest -->
+                <div class="absolute inset-0 bg-red-900 border-2 border-red-950 rounded-t-xl shadow-inner flex items-center justify-center">
+                    <span class="material-symbols-outlined text-white/30 text-2xl z-10" style="font-variation-settings: 'FILL' 1;">person</span>
+                </div>
+                <!-- Seat Cushion -->
+                <div class="absolute -bottom-2 w-14 h-8 -ml-1 bg-red-800 border-2 border-red-950 rounded-lg origin-top" style="transform: rotateX(-60deg);"></div>
+            </div>
+            <div class="absolute -bottom-8 text-[10px] bg-black px-2 py-1 rounded text-white whitespace-nowrap z-20 shadow-lg border border-white/10">{{ seat.occupant.username }}</div>
+        </div>
+        {% else %}
+        <button class="flex flex-col items-center group transition-all duration-300 hover:-translate-y-2 seat-btn relative" data-seat="{{ seat.seat_number }}" onclick="takeSeat({{ seat.seat_number }})" style="transform: rotateX(-45deg) scale(0.95); transform-origin: bottom;">
+            <div class="relative w-12 h-14">
+                <!-- Backrest -->
+                <div class="absolute inset-0 bg-surface-container border-2 border-outline rounded-t-xl group-hover:bg-primary/20 group-hover:border-primary transition-colors flex items-center justify-center shadow-lg">
+                    <span class="text-[12px] font-bold text-outline group-hover:text-primary transition-colors">S{{ seat.seat_number }}</span>
+                </div>
+                <!-- Seat Cushion -->
+                <div class="absolute -bottom-2 w-14 h-8 -ml-1 bg-[#111] border-2 border-outline group-hover:bg-primary/40 group-hover:border-primary rounded-lg origin-top transition-colors" style="transform: rotateX(-60deg);"></div>
+            </div>
+        </button>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- Back Row (Seats 8-10) -->
+    <div class="flex justify-center gap-12 w-full mt-8 transform-style-3d">
+        {% for seat in seats|slice:"7:10" %}
+        {% if seat.occupant %}
+        <div class="flex flex-col items-center opacity-70 cursor-not-allowed group relative" data-seat="{{ seat.seat_number }}" style="transform: rotateX(-45deg) scale(1.1); transform-origin: bottom;">
+            <div class="relative w-14 h-16">
+                <!-- Backrest -->
+                <div class="absolute inset-0 bg-red-900 border-2 border-red-950 rounded-t-xl shadow-inner flex items-center justify-center">
+                    <span class="material-symbols-outlined text-white/30 text-3xl z-10" style="font-variation-settings: 'FILL' 1;">person</span>
+                </div>
+                <!-- Seat Cushion -->
+                <div class="absolute -bottom-3 w-16 h-10 -ml-1 bg-red-800 border-2 border-red-950 rounded-lg origin-top" style="transform: rotateX(-60deg);"></div>
+            </div>
+            <div class="absolute -bottom-10 text-[10px] bg-black px-3 py-1 rounded text-white whitespace-nowrap z-20 shadow-lg border border-white/10">{{ seat.occupant.username }}</div>
+        </div>
+        {% else %}
+        <button class="flex flex-col items-center group transition-all duration-300 hover:-translate-y-2 seat-btn relative" data-seat="{{ seat.seat_number }}" onclick="takeSeat({{ seat.seat_number }})" style="transform: rotateX(-45deg) scale(1.1); transform-origin: bottom;">
+            <div class="relative w-14 h-16">
+                <!-- Backrest -->
+                <div class="absolute inset-0 bg-surface-container border-2 border-outline rounded-t-xl group-hover:bg-primary/20 group-hover:border-primary transition-colors flex items-center justify-center shadow-lg">
+                    <span class="text-[14px] font-bold text-outline group-hover:text-primary transition-colors">S{{ seat.seat_number }}</span>
+                </div>
+                <!-- Seat Cushion -->
+                <div class="absolute -bottom-3 w-16 h-10 -ml-1 bg-[#111] border-2 border-outline group-hover:bg-primary/40 group-hover:border-primary rounded-lg origin-top transition-colors" style="transform: rotateX(-60deg);"></div>
+            </div>
+        </button>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+</div>
+</section>
+<!-- Chat Container -->
+<section class="px-margin flex-grow flex flex-col">
+<div class="glass-panel flex-grow rounded-2xl border border-white/5 overflow-hidden flex flex-col">
+<div class="p-4 border-b border-white/5 flex items-center justify-between">
+<h4 class="font-label-md text-label-md text-primary tracking-widest uppercase">Live Chat</h4>
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-[12px] text-white/40">Live</span>
+</span>
+</div>
+
+    <div class="p-4 flex flex-col gap-4 flex-grow overflow-y-auto min-h-[220px]" id="chat-log">
+        <div class="flex flex-col gap-1 items-center">
+            <span class="text-[12px] text-white/40">Welcome to Theatre {{ room.name }}!</span>
+        </div>
+        
+        <!-- Existing messages will be rendered here -->
+        {% for message in messages %}
+        <div class="flex flex-col gap-1 {% if message.user == request.user %}items-end{% else %}items-start{% endif %}">
+            <span class="text-[10px] font-label-md {% if message.user == request.user %}text-white/40{% else %}text-primary{% endif %} uppercase">{{ message.user.username }}</span>
+            <p class="text-[13px] text-on-surface-variant font-body-md {% if message.user == request.user %}bg-secondary-container/20 border border-secondary-container/30 rounded-tr-none{% else %}bg-white/5 rounded-tl-none{% endif %} p-3 rounded-lg">{{ message.content }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+<!-- Input Area -->
+
+    <div class="p-4 bg-black/60 border-t border-white/5 mt-auto">
+        <form id="chat-form" class="flex gap-2">
+            <input id="chat-input" class="flex-grow bg-surface-container-lowest border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-lg text-sm text-on-surface px-4 py-2 outline-none transition-all" placeholder="Join the conversation..." type="text" autocomplete="off" required/>
+            <button type="submit" class="bg-primary text-on-primary w-10 h-10 flex items-center justify-center rounded-lg active:scale-95 transition-transform">
+                <span class="material-symbols-outlined">send</span>
+            </button>
+        </form>
+    </div>
+    
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Bar (Fixed) -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface-container-lowest/80 backdrop-blur-2xl border-t border-white/10 shadow-[0_-10px_40px_rgba(212,175,55,0.1)] flex justify-around items-center h-20 px-6 pb-2">
+<a class="flex flex-col items-center justify-center text-primary bg-primary/10 rounded-full px-6 py-2 shadow-[0_0_20px_rgba(212,175,55,0.2)] scale-105 transition-all duration-300 ease-out" href="{% url 'create_theatre_room' %}">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">movie</span>
+<span class="font-label-md text-label-md">Cinema</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary-fixed-dim transition-colors duration-300" href="{% url 'home' %}">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-md text-label-md">Lounge</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary-fixed-dim transition-colors duration-300" href="{% url 'kada' %}">
+<span class="material-symbols-outlined">confirmation_number</span>
+<span class="font-label-md text-label-md">Tickets</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary-fixed-dim transition-colors duration-300" href="{% url 'profile' %}">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md">Profile</span>
+</a>
+</nav>
+
+<!-- Weather Audio Sources -->
+<audio id="rain-audio" loop>
+    <source src="{% static 'chatkada/sounds/Rain.mp3' %}" type="audio/mpeg">
+</audio>
+<audio id="thunder-audio">
+    <source src="{% static 'chatkada/sounds/thunder-1.m4a' %}" type="audio/mpeg">
+</audio>
+<!-- Weather Visual Containers -->
+<div class="rain-container" id="rain-container" style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:998;"></div>
+<div class="lightning-overlay" id="lightning-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:white; opacity:0; pointer-events:none; z-index:999;"></div>
+
+<script src="{% static 'chatkada/js/rain.js' %}"></script>
+
+    <script>
+    const roomId = "{{ room.room_id }}";
+    const currentUsername = "{{ request.user.username }}";
+    const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+    
+    // WebSocket Connection
+    const chatSocket = new WebSocket(
+        wsScheme + '://' + window.location.host + '/ws/theatre/' + roomId + '/'
+    );
+
+    chatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        
+        if (data.action === 'chat_message') {
+            const chatLog = document.getElementById('chat-log');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'flex flex-col gap-1';
+            msgDiv.innerHTML = `
+                <span class="text-[10px] font-label-md text-primary uppercase">${data.username}</span>
+                <p class="text-[13px] text-on-surface-variant font-body-md bg-white/5 p-3 rounded-lg rounded-tl-none">${data.message}</p>
+            `;
+            chatLog.appendChild(msgDiv);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        } 
+        else if (data.action === 'seat_update') {
+            window.location.reload(); // Simple reload to update seats layout
+        }
+        else if (data.action === 'channel_sync') {
+            playStream(data.channel_url, false);
+        }
+    };
+
+    chatSocket.onclose = function(e) {
+        console.error('Chat socket closed unexpectedly');
+    };
+
+    // Chat Form Submit
+    document.getElementById('chat-form').onsubmit = function(e) {
+        e.preventDefault();
+        const messageInputDom = document.getElementById('chat-input');
+        const message = messageInputDom.value;
+        chatSocket.send(JSON.stringify({
+            'action': 'chat_message',
+            'message': message
+        }));
+        messageInputDom.value = '';
+    };
+
+    // Take Seat
+    function takeSeat(seatNumber) {
+        chatSocket.send(JSON.stringify({
+            'action': 'take_seat',
+            'seat_number': seatNumber
+        }));
+    }
+
+    // IPTV Loading Logic
+    const video = document.getElementById('player');
+    const overlay = document.getElementById('video-overlay');
+    let hls = null;
+    
+    // Fetch channels only if no channel was selected
+    fetch('https://iptv-org.github.io/iptv/index.m3u')
+        .then(res => res.text())
+        .then(text => {
+            const lines = text.split('\n');
+            const selectContainer = document.getElementById('channel-list')?.parentElement;
+            if (!selectContainer) return;
+            
+            // We replace the <select> with a custom searchable dropdown
+            selectContainer.innerHTML = `
+                <div class="relative w-full" id="custom-dropdown-container">
+                    <input type="text" id="channel-search-input" class="w-full bg-surface-container/90 border border-primary/50 text-white rounded-full px-8 py-4 text-lg focus:border-primary focus:ring-2 focus:ring-primary/50 outline-none shadow-[0_0_30px_rgba(242,202,80,0.2)] transition-all placeholder-white/30" placeholder="Search Channels, Movies, Categories..." autocomplete="off">
+                    <div id="channel-dropdown-list" class="absolute w-full mt-4 bg-surface-container-lowest/95 border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] max-h-80 overflow-y-auto hidden z-50 scrollbar-thin scrollbar-thumb-primary/50 backdrop-blur-md">
+                        <div class="p-6 text-white/50 text-center">Type to search thousands of free live channels...</div>
+                    </div>
+                </div>
+            `;
+            
+            const searchInput = document.getElementById('channel-search-input');
+            const dropdownList = document.getElementById('channel-dropdown-list');
+            
+            let channels = [];
+            
+            for(let i=0; i<lines.length; i++){
+                if(lines[i].startsWith('#EXTINF')){
+                    // Parse category and language from attributes
+                    const line = lines[i];
+                    let categoryMatch = line.match(/group-title="([^"]+)"/);
+                    let category = categoryMatch ? categoryMatch[1] : "Uncategorized";
+                    
+                    let langMatch = line.match(/tvg-language="([^"]+)"/);
+                    let language = langMatch ? langMatch[1] : "Unknown";
+                    
+                    const parts = line.split(',');
+                    const name = parts[1] || 'Unknown Channel';
+                    
+                    let j = i + 1;
+                    while (j < lines.length && lines[j].startsWith('#')) {
+                        j++;
+                    }
+                    const url = j < lines.length ? lines[j] : null;
+                    
+                    if (url && url.trim() !== '') {
+                        channels.push({
+                            name: name.trim(),
+                            url: url.trim(),
+                            category: category,
+                            language: language,
+                            searchString: (name + " " + category + " " + language).toLowerCase()
+                        });
+                    }
+                }
+            }
+            
+            // Function to render dropdown items
+            const renderChannels = (filterText = "") => {
+                dropdownList.innerHTML = '';
+                const query = filterText.toLowerCase();
+                let matched = 0;
+                
+                for(let i = 0; i < channels.length; i++) {
+                    if (matched >= 100) break; // Limit to 100 results for performance
+                    const ch = channels[i];
+                    
+                    if (!query || ch.searchString.includes(query)) {
+                        if (matched < 100) { // Limit results to avoid lag
+                            matched++;
+                            const item = document.createElement('div');
+                            item.className = 'p-4 hover:bg-primary/20 cursor-pointer text-sm border-b border-white/10 last:border-0 transition-colors';
+                            
+                            // Re-adding category and language tags for a premium look
+                            item.innerHTML = `
+                                <div class="flex justify-between items-center w-full">
+                                    <span class="font-bold">${ch.name}</span>
+                                    <div class="flex gap-2">
+                                        ${ch.category !== 'Uncategorized' ? `<span class="bg-white/10 text-[10px] px-2 py-0.5 rounded text-white/70">${ch.category}</span>` : ''}
+                                        ${ch.language !== 'Unknown' ? `<span class="bg-primary/10 text-[10px] text-primary px-2 py-0.5 rounded">${ch.language}</span>` : ''}
+                                    </div>
+                                </div>
+                            `;
+
+                            item.onclick = function() {
+                                searchInput.value = ch.name;
+                                searchInput.dataset.url = ch.url;
+                                dropdownList.classList.add('hidden');
+                                
+                                // Auto-play instantly
+                                chatSocket.send(JSON.stringify({
+                                    'action': 'change_channel',
+                                    'channel_url': ch.url
+                                }));
+                                playStream(ch.url, false);
+                            };
+                            dropdownList.appendChild(item);
+                        }
+                    }
+                }
+                
+                if (matched === 0) {
+                    dropdownList.innerHTML = '<div class="p-6 text-white/50 text-sm text-center">No channels found matching your search.</div>';
+                }
+            };
+            
+            // Event Listeners for the custom dropdown
+            searchInput.addEventListener('focus', () => {
+                dropdownList.classList.remove('hidden');
+                renderChannels(searchInput.value);
+            });
+            
+            searchInput.addEventListener('input', (e) => {
+                renderChannels(e.target.value);
+            });
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!selectContainer.contains(e.target)) {
+                    dropdownList.classList.add('hidden');
+                }
+            });
+            
+        })
+        .catch(err => {
+            console.error('Failed to load IPTV playlist', err);
+            const selectContainer = document.getElementById('channel-list')?.parentElement;
+            if (selectContainer) {
+                selectContainer.innerHTML = '<div class="text-red-500 text-sm text-center p-4">Failed to load channel list. Please refresh the page.</div>';
+            }
+        });
+
+    function playStream(streamUrl, useProxy) {
+        if (!streamUrl) return;
+        window._lastStreamUrl = streamUrl; // track so close button knows video had content
+        
+        let finalUrl = streamUrl;
+        if (useProxy) {
+            finalUrl = '/proxy-m3u/?url=' + encodeURIComponent(streamUrl);
+        }
+
+        if (Hls.isSupported()) {
+            if (hls) hls.destroy();
+            hls = new Hls();
+            hls.loadSource(finalUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.play().catch(e => console.log('Autoplay blocked'));
+            });
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR && !useProxy) {
+                    console.log("Network error (CORS likely). Auto-retrying with proxy...");
+                    playStream(streamUrl, true); // Automatically retry using proxy
+                } else if (data.fatal) {
+                    alert("This channel is currently offline or unreachable.");
+                }
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = finalUrl;
+            video.addEventListener('loadedmetadata', function() { video.play().catch(e => console.log('Autoplay blocked')); });
+            video.addEventListener('error', function() {
+                if (!useProxy) playStream(streamUrl, true);
+            });
+        }
+    }
+
+    const preselectedBtn = document.getElementById('preselected-play-btn');
+    if (preselectedBtn) {
+        preselectedBtn.onclick = function() {
+            const streamUrl = "{{ room.channel_url|default:''|escapejs }}";
+            if (!streamUrl) return;
+            
+            chatSocket.send(JSON.stringify({
+                'action': 'change_channel',
+                'channel_url': streamUrl
+            }));
+            
+            playStream(streamUrl, false);
+        };
+    }
+
+    // Load initial channel if set
+    const initialChannelUrl = "{{ room.channel_url|default:''|escapejs }}";
+    if (initialChannelUrl) {
+        playStream(initialChannelUrl, false);
+    }
+    
+    // Hide overlay when playing
+    video.addEventListener('play', () => {
+        overlay.style.opacity = '0';
+        overlay.style.pointerEvents = 'none';
+        const channelSelector = document.getElementById('channel-selector-container');
+        if (channelSelector) channelSelector.style.display = 'none';
+        document.getElementById('screen-glow').style.opacity = '1';
+    });
+    video.addEventListener('pause', () => {
+        overlay.style.opacity = '1';
+        overlay.style.pointerEvents = 'auto';
+        const channelSelector = document.getElementById('channel-selector-container');
+        if (channelSelector) channelSelector.style.display = 'flex';
+        document.getElementById('screen-glow').style.opacity = '0.3';
+    });
+
+    // Change Channel Button Logic
+    window.showChannelSearch = function() {
+        video.pause();
+        // Show the selector overlay
+        const channelSelector = document.getElementById('channel-selector-container');
+        if (channelSelector) {
+            channelSelector.style.display = 'flex';
+            overlay.style.opacity = '1';
+            overlay.style.pointerEvents = 'auto';
+        }
+        // Focus the search input after a brief delay (it may be rendered after channels load)
+        setTimeout(() => {
+            const searchInput = document.getElementById('channel-search-input');
+            if (searchInput) searchInput.focus();
+        }, 100);
+    };
+
+    // Close Channel Search (go back to video)
+    window.closeChannelSearch = function() {
+        const channelSelector = document.getElementById('channel-selector-container');
+        if (channelSelector) channelSelector.style.display = 'none';
+        // Only re-hide the overlay if video has a source (i.e., was playing before)
+        if (video.src || (window._lastStreamUrl)) {
+            overlay.style.opacity = '0';
+            overlay.style.pointerEvents = 'none';
+            video.play().catch(e => console.log('Play blocked:', e));
+        }
+    };
+
+    // Share Room Logic
+    window.shareRoom = function() {
+        const url = window.location.href;
+        if (navigator.share) {
+            navigator.share({
+                title: 'Join my Theatre Room',
+                text: 'Come watch this movie with me on Cinephile!',
+                url: url
+            }).catch(console.error);
+        } else {
+            navigator.clipboard.writeText(url).then(function() {
+                const shareBtn = document.getElementById('btn-share');
+                const originalHTML = shareBtn.innerHTML;
+                shareBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span> <span class="text-xs font-bold uppercase tracking-wider hidden md:inline">Copied!</span>';
+                setTimeout(() => {
+                    shareBtn.innerHTML = originalHTML;
+                }, 2000);
+            }).catch(function(err) {
+                console.error('Failed to copy link: ', err);
+                alert("Failed to copy link. The link is: " + url);
+            });
+        }
+    };
+
+    // Ambient Weather FX Logic
+    let rainActive = false;
+    let thunderActive = false;
+    
+    window.toggleWeather = function(type) {
+        const rainAudio = document.getElementById('rain-audio');
+        const thunderAudio = document.getElementById('thunder-audio');
+        const rainBtn = document.getElementById('btn-rain');
+        const thunderBtn = document.getElementById('btn-thunder');
+
+        if (type === 'rain') {
+            rainActive = !rainActive;
+            if (rainActive) {
+                rainAudio.volume = 0.3;
+                rainAudio.play().catch(e => console.log(e));
+                rainBtn.classList.add('bg-primary/20', 'text-primary', 'border-primary');
+                rainBtn.classList.remove('bg-surface-container/50', 'text-white/50');
+            } else {
+                rainAudio.pause();
+                rainBtn.classList.remove('bg-primary/20', 'text-primary', 'border-primary');
+                rainBtn.classList.add('bg-surface-container/50', 'text-white/50');
+                
+                // Clear active raindrops
+                const container = document.getElementById('rain-container');
+                if (container) container.innerHTML = '';
+            }
+        } else if (type === 'thunder') {
+            thunderActive = !thunderActive;
+            if (thunderActive) {
+                thunderAudio.volume = 0.5;
+                thunderAudio.play().catch(e => console.log(e));
+                thunderBtn.classList.add('bg-primary/20', 'text-primary', 'border-primary');
+                thunderBtn.classList.remove('bg-surface-container/50', 'text-white/50');
+            } else {
+                thunderAudio.pause();
+                thunderBtn.classList.remove('bg-primary/20', 'text-primary', 'border-primary');
+                thunderBtn.classList.add('bg-surface-container/50', 'text-white/50');
+            }
+        }
+    };
+    </script>
+    
+</body></html>

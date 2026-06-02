@@ -31,6 +31,11 @@ urlpatterns = [
     path('create-bench-invite/<uuid:room_id>/', views.create_bench_invite, name='create_bench_invite'),
     path('join-bench/<str:invite_code>/', views.join_bench, name='join_bench'),
     
+    # Theatre Room URLs
+    path('create-theatre/', views.create_theatre_room, name='create_theatre_room'),
+    path('theatre/<uuid:room_id>/', views.theatre_room_view, name='theatre_room_view'),
+    path('proxy-m3u/', views.proxy_m3u, name='proxy_m3u'),
+    
     # Item management for admin
     path('custom-admin/login/', views.custom_admin_login, name='custom_admin_login'),
     path('custom-admin/', views.custom_admin_dashboard, name='custom_admin_dashboard'),

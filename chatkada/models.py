@@ -114,6 +114,7 @@ class ChatRoom(models.Model):
     ROOM_TYPES = [
         ('stranger', 'Stranger Chat'),
         ('private_bench', 'Private Bench'),
+        ('theatre', 'Theatre Room'),
     ]
     
     room_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -126,6 +127,7 @@ class ChatRoom(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_rooms')
     participants = models.ManyToManyField(User, related_name='chat_rooms', blank=True)
     is_active = models.BooleanField(default=True)
+    channel_url = models.CharField(max_length=500, blank=True, null=True)
     
     def save(self, *args, **kwargs):
         # Set expiration for stranger chats
@@ -277,3 +279,16 @@ class ChatMessage(models.Model):
     
     def __str__(self):
         return f"{self.user.username}: {self.content[:50]}"
+
+class TheatreSeat(models.Model):
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='seats')
+    seat_number = models.IntegerField()
+    occupant = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='occupied_seats')
+    last_updated = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['room', 'seat_number']
+        ordering = ['seat_number']
+        
+    def __str__(self):
+        return f"Seat {self.seat_number} in {self.room.name}"

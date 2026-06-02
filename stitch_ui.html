@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CINEPHILE - Private Screening</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&amp;family=Inter:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-fixed": "#dbe1ff",
+                    "outline-variant": "#4d4635",
+                    "outline": "#99907c",
+                    "surface-container-high": "#2a2a2a",
+                    "inverse-on-surface": "#313030",
+                    "tertiary": "#bfcdff",
+                    "on-tertiary-fixed": "#00174b",
+                    "secondary-container": "#920703",
+                    "on-secondary-fixed": "#410000",
+                    "surface-tint": "#e9c349",
+                    "on-surface": "#e5e2e1",
+                    "tertiary-fixed-dim": "#b4c5ff",
+                    "surface-container-low": "#1c1b1b",
+                    "secondary": "#ffb4a8",
+                    "on-primary": "#3c2f00",
+                    "on-secondary": "#690000",
+                    "error": "#ffb4ab",
+                    "secondary-fixed-dim": "#ffb4a8",
+                    "secondary-fixed": "#ffdad4",
+                    "on-tertiary": "#082b72",
+                    "inverse-surface": "#e5e2e1",
+                    "on-surface-variant": "#d0c5af",
+                    "on-background": "#e5e2e1",
+                    "background": "#131313",
+                    "primary-fixed": "#ffe088",
+                    "inverse-primary": "#735c00",
+                    "on-secondary-fixed-variant": "#920703",
+                    "surface-container": "#201f1f",
+                    "surface-bright": "#393939",
+                    "surface-container-lowest": "#0e0e0e",
+                    "on-primary-fixed": "#241a00",
+                    "on-primary-fixed-variant": "#574500",
+                    "tertiary-container": "#97b0ff",
+                    "on-error": "#690005",
+                    "primary-fixed-dim": "#e9c349",
+                    "primary-container": "#d4af37",
+                    "surface": "#131313",
+                    "on-primary-container": "#554300",
+                    "on-error-container": "#ffdad6",
+                    "on-secondary-container": "#ff9a8a",
+                    "on-tertiary-container": "#254188",
+                    "surface-variant": "#353534",
+                    "surface-container-highest": "#353534",
+                    "on-tertiary-fixed-variant": "#27438a",
+                    "primary": "#f2ca50",
+                    "error-container": "#93000a",
+                    "surface-dim": "#131313"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "margin": "32px",
+                    "lg": "48px",
+                    "xs": "4px",
+                    "md": "24px",
+                    "sm": "12px",
+                    "xl": "80px",
+                    "gutter": "24px",
+                    "base": "8px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "headline-xl": ["Montserrat"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Montserrat"],
+                    "headline-lg": ["Montserrat"],
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Montserrat"]
+            },
+            "fontSize": {
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "headline-xl": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(14, 14, 14, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .seat-selected {
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+        }
+        .screen-glow {
+            box-shadow: 0 -20px 60px -10px rgba(212, 175, 55, 0.15);
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #353534;
+            border-radius: 10px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md overflow-x-hidden">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-surface-container-lowest/75 backdrop-blur-xl border-b border-white/10 shadow-xl flex justify-between items-center px-margin py-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">theater_comedy</span>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tighter text-primary">CINEPHILE</h1>
+</div>
+<button class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-lg font-label-md text-label-md tracking-wider active:scale-95 transition-transform">
+            LIVE
+        </button>
+</header>
+<main class="pt-20 pb-32 min-h-screen flex flex-col gap-8">
+<!-- Video Player Section -->
+<section class="px-margin">
+<div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black ring-1 ring-white/10 group">
+<img class="w-full h-full object-cover opacity-60" data-alt="A cinematic still from a high-budget sci-fi film showing a futuristic neon-lit cityscape under a heavy rain. The scene is dominated by deep charcoal shadows and vibrant golden light reflecting off metallic surfaces. The composition follows the rule of thirds with a solitary figure silhouetted against a massive glowing digital billboard. Professional cinematic lighting with anamorphic lens flares creates a moody, prestigious atmosphere consistent with a luxury theatre aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBzKThvysrpqoZc2O3-es03NbJPabcf_AGFZXmOSppNh4Ag36XfNjgEGXoUBF9if_hdsgpsLuKpxVOYYaGcfAZWUhrJrdTglQdQAj5jkrAQzBlBtqgrFIfg8zoZwEKJoUyXUaoYMb6Ly2DkHfc3RZj9oRZe9LtTSl8weHncu1i872QfTmLF4JW7gXlLb6ITnfKSKRhktqoWNEgvpb1lAzUtaV6IWyXXySmUxuboUMk0QnMBAbqlJPW3hDQTRllPI0sNU1WvtvLfFs8"/>
+<!-- Play Overlay Controls -->
+<div class="absolute inset-0 flex flex-col justify-between p-4 bg-gradient-to-t from-black/80 via-transparent to-transparent">
+<div class="flex justify-between items-start">
+<div class="flex gap-2">
+<span class="bg-secondary-container/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-sm uppercase">4K Ultra HD</span>
+</div>
+<button class="text-white/60 hover:text-white transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+<div class="flex flex-col gap-4">
+<!-- Progress Bar (Velvet Red) -->
+<div class="w-full h-1 bg-white/20 rounded-full relative">
+<div class="absolute top-0 left-0 h-full w-1/3 bg-secondary-container rounded-full shadow-[0_0_8px_#920703]"></div>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-4">
+<button class="text-white hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[32px]">play_arrow</span>
+</button>
+<div class="text-[12px] font-label-md text-white/80">01:24:00 / 02:45:00</div>
+</div>
+<button class="text-white hover:text-primary transition-colors">
+<span class="material-symbols-outlined">fullscreen</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Channel Selection Overlay -->
+<div class="absolute top-4 left-1/2 -translate-x-1/2 flex gap-2 p-1 bg-black/40 backdrop-blur-md rounded-full border border-white/5">
+<button class="px-4 py-1.5 rounded-full text-[12px] font-label-md bg-primary text-on-primary shadow-[0_0_15px_rgba(212,175,55,0.3)] transition-all">Action</button>
+<button class="px-4 py-1.5 rounded-full text-[12px] font-label-md text-white/60 hover:text-white transition-colors">Indie</button>
+<button class="px-4 py-1.5 rounded-full text-[12px] font-label-md text-white/60 hover:text-white transition-colors">Horror</button>
+</div>
+</div>
+</section>
+<!-- Seat Grid Section -->
+<section class="px-margin flex flex-col items-center">
+<div class="w-full max-w-sm">
+<!-- Screen Indicator -->
+<div class="w-2/3 h-1 bg-primary/40 mx-auto mb-10 rounded-full blur-[2px] screen-glow"></div>
+<h3 class="text-center font-label-md text-label-md text-outline uppercase tracking-widest mb-6">Select Your Seat</h3>
+<!-- 2x5 Grid -->
+<div class="grid grid-cols-5 gap-y-8 gap-x-4 place-items-center">
+<!-- Row 1 -->
+<!-- Seat 1: Occupied -->
+<div class="flex flex-col items-center opacity-30 cursor-not-allowed">
+<span class="material-symbols-outlined text-on-surface">chair</span>
+<span class="text-[10px] mt-1 text-outline">A1</span>
+</div>
+<!-- Seat 2: Available -->
+<button class="flex flex-col items-center group transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-outline group-hover:text-primary">chair</span>
+<span class="text-[10px] mt-1 text-outline">A2</span>
+</button>
+<!-- Seat 3: Available -->
+<button class="flex flex-col items-center group transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-outline group-hover:text-primary">chair</span>
+<span class="text-[10px] mt-1 text-outline">A3</span>
+</button>
+<!-- Seat 4: Occupied -->
+<div class="flex flex-col items-center opacity-30 cursor-not-allowed">
+<span class="material-symbols-outlined text-on-surface">chair</span>
+<span class="text-[10px] mt-1 text-outline">A4</span>
+</div>
+<!-- Seat 5: Selected -->
+<button class="flex flex-col items-center seat-selected rounded-lg p-1 bg-primary/10 transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">chair</span>
+<span class="text-[10px] mt-1 text-primary">A5</span>
+</button>
+<!-- Row 2 -->
+<!-- Seat 6: Available -->
+<button class="flex flex-col items-center group transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-outline group-hover:text-primary">chair</span>
+<span class="text-[10px] mt-1 text-outline">B1</span>
+</button>
+<!-- Seat 7: Available -->
+<button class="flex flex-col items-center group transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-outline group-hover:text-primary">chair</span>
+<span class="text-[10px] mt-1 text-outline">B2</span>
+</button>
+<!-- Seat 8: Available -->
+<button class="flex flex-col items-center group transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-outline group-hover:text-primary">chair</span>
+<span class="text-[10px] mt-1 text-outline">B3</span>
+</button>
+<!-- Seat 9: Occupied -->
+<div class="flex flex-col items-center opacity-30 cursor-not-allowed">
+<span class="material-symbols-outlined text-on-surface">chair</span>
+<span class="text-[10px] mt-1 text-outline">B4</span>
+</div>
+<!-- Seat 10: Available -->
+<button class="flex flex-col items-center group transition-all duration-300" onclick="toggleSeat(this)">
+<span class="material-symbols-outlined text-outline group-hover:text-primary">chair</span>
+<span class="text-[10px] mt-1 text-outline">B5</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Chat Container -->
+<section class="px-margin flex-grow flex flex-col">
+<div class="glass-panel flex-grow rounded-2xl border border-white/5 overflow-hidden flex flex-col">
+<div class="p-4 border-b border-white/5 flex items-center justify-between">
+<h4 class="font-label-md text-label-md text-primary tracking-widest uppercase">Live Chat</h4>
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-[12px] text-white/40">242 online</span>
+</span>
+</div>
+<div class="p-4 flex flex-col gap-4 max-h-[220px] overflow-y-auto" id="chat-stream">
+<div class="flex flex-col gap-1">
+<span class="text-[10px] font-label-md text-primary uppercase">Cinephile_01</span>
+<p class="text-[13px] text-on-surface-variant font-body-md bg-white/5 p-3 rounded-lg rounded-tl-none">That opening shot was incredible. The scale of the city is unmatched.</p>
+</div>
+<div class="flex flex-col gap-1 items-end">
+<span class="text-[10px] font-label-md text-white/40 uppercase">Director_Mode</span>
+<p class="text-[13px] text-on-surface-variant font-body-md bg-secondary-container/20 p-3 rounded-lg rounded-tr-none border border-secondary-container/30">Wait for the score transition in the next scene!</p>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] font-label-md text-primary uppercase">User443</span>
+<p class="text-[13px] text-on-surface-variant font-body-md bg-white/5 p-3 rounded-lg rounded-tl-none">Can't wait for the movie! My first time seeing this genre in 4K.</p>
+</div>
+</div>
+<!-- Input Area -->
+<div class="p-4 bg-black/60 border-t border-white/5 mt-auto">
+<div class="flex gap-2">
+<input class="flex-grow bg-surface-container-lowest border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-lg text-sm text-on-surface px-4 py-2 outline-none transition-all" placeholder="Join the conversation..." type="text"/>
+<button class="bg-primary text-on-primary w-10 h-10 flex items-center justify-center rounded-lg active:scale-95 transition-transform">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Bar (Fixed) -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface-container-lowest/80 backdrop-blur-2xl border-t border-white/10 shadow-[0_-10px_40px_rgba(212,175,55,0.1)] flex justify-around items-center h-20 px-6 pb-2">
+<a class="flex flex-col items-center justify-center text-primary bg-primary/10 rounded-full px-6 py-2 shadow-[0_0_20px_rgba(212,175,55,0.2)] scale-105 transition-all duration-300 ease-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">movie</span>
+<span class="font-label-md text-label-md">Cinema</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary-fixed-dim transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-md text-label-md">Lounge</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary-fixed-dim transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">confirmation_number</span>
+<span class="font-label-md text-label-md">Tickets</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary-fixed-dim transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md">Profile</span>
+</a>
+</nav>
+<script>
+        function toggleSeat(btn) {
+            const icon = btn.querySelector('.material-symbols-outlined');
+            const label = btn.querySelector('span:last-child');
+            
+            if (btn.classList.contains('seat-selected')) {
+                // Deselect
+                btn.classList.remove('seat-selected', 'bg-primary/10', 'p-1');
+                icon.style.fontVariationSettings = "'FILL' 0";
+                icon.classList.remove('text-primary');
+                icon.classList.add('text-outline');
+                label.classList.remove('text-primary');
+                label.classList.add('text-outline');
+            } else {
+                // Select
+                btn.classList.add('seat-selected', 'bg-primary/10', 'p-1');
+                icon.style.fontVariationSettings = "'FILL' 1";
+                icon.classList.add('text-primary');
+                icon.classList.remove('text-outline');
+                label.classList.add('text-primary');
+                label.classList.remove('text-outline');
+                
+                // Simple vibration/haptic feedback simulation
+                btn.style.transform = "scale(0.9)";
+                setTimeout(() => btn.style.transform = "scale(1)", 100);
+            }
+        }
+
+        // Auto-scroll chat to bottom
+        const chatStream = document.getElementById('chat-stream');
+        chatStream.scrollTop = chatStream.scrollHeight;
+    </script>
+</body></html>
