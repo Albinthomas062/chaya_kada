@@ -12,6 +12,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'chat_{self.room_name}'
         self.user = self.scope['user']
+        
+        # Reject anonymous users
+        if not self.user.is_authenticated:
+            await self.close()
+            return
 
         # Join room group
         await self.channel_layer.group_add(
@@ -101,6 +106,11 @@ class TheatreConsumer(AsyncWebsocketConsumer):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'theatre_{self.room_name}'
         self.user = self.scope['user']
+        
+        # Reject anonymous users
+        if not self.user.is_authenticated:
+            await self.close()
+            return
 
         await self.channel_layer.group_add(
             self.room_group_name,
@@ -124,20 +134,26 @@ class TheatreConsumer(AsyncWebsocketConsumer):
         if action == 'chat_message':
             message = data.get('message')
             if message and self.user.is_authenticated:
+                # Get user avatar safely
+                user_avatar = await self.get_user_avatar()
+                
                 await self.channel_layer.group_send(
                     self.room_group_name,
                     {
                         'type': 'chat_message',
                         'message': message,
                         'username': self.user.username,
-                        'avatar': getattr(self.user, 'userprofile', None).avatar if hasattr(self.user, 'userprofile') else '☕'
+                        'avatar': user_avatar
                     }
                 )
         
         elif action == 'take_seat':
             seat_number = data.get('seat_number')
             if seat_number and self.user.is_authenticated:
+                # Get user avatar safely
+                user_avatar = await self.get_user_avatar()
                 success = await self.claim_seat(seat_number)
+                
                 if success:
                     await self.channel_layer.group_send(
                         self.room_group_name,
@@ -145,7 +161,7 @@ class TheatreConsumer(AsyncWebsocketConsumer):
                             'type': 'seat_update',
                             'seat_number': seat_number,
                             'username': self.user.username,
-                            'avatar': getattr(self.user, 'userprofile', None).avatar if hasattr(self.user, 'userprofile') else '☕'
+                            'avatar': user_avatar
                         }
                     )
         
@@ -203,6 +219,16 @@ class TheatreConsumer(AsyncWebsocketConsumer):
             'channel_url': event['channel_url'],
             'username': event['username']
         }))
+
+    @database_sync_to_async
+    def get_user_avatar(self):
+        """Safely get user avatar"""
+        try:
+            if hasattr(self.user, 'userprofile'):
+                return self.user.userprofile.avatar
+        except Exception:
+            pass
+        return '☕'
 
     @database_sync_to_async
     def claim_seat(self, seat_number):

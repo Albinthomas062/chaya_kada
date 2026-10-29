@@ -516,18 +516,28 @@ def chat_room(request, room_id):
         messages.error(request, 'You are not a participant in this room.')
         return redirect('find_chat')
     
-    # Clean up expired messages
+    # Clean up expired messages (only for stranger chats with expiry)
     ChatMessage.objects.filter(
         room=room,
-        expires_at__lt=timezone.now()
+        expires_at__lt=timezone.now(),
+        expires_at__isnull=False
     ).update(is_deleted=True)
     
-    # Get non-expired messages
-    chat_messages = ChatMessage.objects.filter(
-        room=room,
-        is_deleted=False,
-        expires_at__gt=timezone.now()
-    ).select_related('user', 'shared_item').order_by('timestamp')[:50]
+    # Get non-deleted messages
+    # For stranger chats: only show non-expired messages
+    # For benches/theatre: show all messages (no expiry)
+    if room.room_type == 'stranger':
+        chat_messages = ChatMessage.objects.filter(
+            room=room,
+            is_deleted=False,
+            expires_at__gt=timezone.now()
+        ).select_related('user', 'shared_item').order_by('timestamp')[:50]
+    else:
+        # Benches and theatre don't expire messages
+        chat_messages = ChatMessage.objects.filter(
+            room=room,
+            is_deleted=False
+        ).select_related('user', 'shared_item').order_by('timestamp')[:50]
     
     # Get shareable items user has purchased
     shareable_items = Purchase.objects.filter(
@@ -542,6 +552,16 @@ def chat_room(request, room_id):
             room=room,
             status='active'
         ).first()
+        
+        # Create an invite if none exists
+        if not active_invite or not active_invite.is_valid():
+            active_invite = BenchInvite.objects.create(
+                room=room,
+                created_by=request.user,
+                max_uses=10,
+                expires_at=timezone.now() + timedelta(days=7)
+            )
+        
         if active_invite and active_invite.is_valid():
             invite_link = request.build_absolute_uri(
                 reverse('join_bench', kwargs={'invite_code': active_invite.invite_code})
@@ -968,7 +988,7 @@ def create_bench_invite(request, room_id):
                 expires_at=timezone.now() + expiration_delta
             )
             
-            # Build full URL
+            # Build full URL using request for proper scheme and host
             invite_url = request.build_absolute_uri(
                 reverse('join_bench', kwargs={'invite_code': invite.invite_code})
             )
@@ -1096,6 +1116,26 @@ def handle_stranger_chat_request(request):
                 joined_at__lt=timezone.now() - timedelta(minutes=10)
             ).delete()
             
+            # First check if user was already matched into a room
+            existing_match = ChatRoom.objects.filter(
+                participants=request.user,
+                room_type='stranger',
+                is_active=True,
+                created_at__gte=timezone.now() - timedelta(minutes=10)
+            ).first()
+            
+            if existing_match:
+                # User was matched! Remove from queue and redirect
+                StrangerChatQueue.objects.filter(user=request.user).delete()
+                profile.looking_for_stranger_chat = False
+                profile.save()
+                
+                return JsonResponse({
+                    'status': 'matched',
+                    'message': 'Connected with a stranger!',
+                    'room_id': str(existing_match.room_id)
+                })
+            
             # Check if user already in queue
             queue_entry, created = StrangerChatQueue.objects.get_or_create(
                 user=request.user,
@@ -1107,19 +1147,25 @@ def handle_stranger_chat_request(request):
                 queue_entry.last_attempt = timezone.now()
                 queue_entry.save()
             
-            # Find available online users
+            # Try to match with another user in queue
+            matched_user_queue = find_queue_match(request.user)
+            
+            if matched_user_queue:
+                # Found a match! Create room and notify both users
+                chat_room = create_stranger_chat_room(request, matched_user_queue)
+                return JsonResponse({
+                    'status': 'matched',
+                    'message': 'Connected with a stranger!',
+                    'room_id': str(chat_room.room_id)
+                })
+            
+            # No match yet - check for available online users
             available_users = find_available_online_users(request.user)
             
-            if not available_users:
+            if not available_users.exists():
                 return handle_no_users_available(request, queue_entry)
             
-            # Try to match with another user in queue
-            matched_user = find_queue_match(request.user)
-            
-            if matched_user:
-                return create_stranger_chat_room(request, matched_user)
-            else:
-                return wait_for_match(request, queue_entry, available_users)
+            return wait_for_match(request, queue_entry, available_users)
                 
     except Exception as e:
         return handle_connection_error(request, str(e))
@@ -1132,20 +1178,17 @@ def find_available_online_users(current_user):
         userprofile__last_activity__gte=timezone.now() - timedelta(minutes=5)
     ).exclude(
         id=current_user.id
-    ).exclude(
-        # Exclude users already in active chats
-        chat_rooms__room_type='stranger',
-        chat_rooms__is_active=True
     )
 
 def find_queue_match(current_user):
     """Find another user in the stranger chat queue to match with"""
+    # Find someone who's been waiting (not the current user)
     return StrangerChatQueue.objects.filter(
-        joined_at__lt=timezone.now() - timedelta(seconds=30)  # Wait 30 seconds before matching
+        joined_at__lt=timezone.now() - timedelta(seconds=5)  # Wait 5 seconds minimum
     ).exclude(user=current_user).first()
 
 def create_stranger_chat_room(request, matched_user_queue):
-    """Create a chat room for matched strangers"""
+    """Create a chat room for matched strangers and return the room"""
     matched_user = matched_user_queue.user
     
     # Create chat room with max_users=2 for 1-on-1 secure chat
@@ -1171,7 +1214,7 @@ def create_stranger_chat_room(request, matched_user_queue):
         profile.looking_for_stranger_chat = False
         profile.save()
     
-    # Send system messages
+    # Send system message
     ChatMessage.objects.create(
         room=chat_room,
         user=request.user,
@@ -1179,12 +1222,7 @@ def create_stranger_chat_room(request, matched_user_queue):
         content=f"Connected with a stranger! Say hello! 👋"
     )
     
-    # Return JSON response for AJAX
-    return JsonResponse({
-        'status': 'matched',
-        'message': 'Connected with a stranger!',
-        'room_id': str(chat_room.room_id)
-    })
+    return chat_room
 
 def wait_for_match(request, queue_entry, available_users):
     """Handle waiting state when no immediate match is available"""
@@ -1465,12 +1503,24 @@ def theatre_room_view(request, room_id):
     return render(request, 'theatre_room.html', context)
 
 
+@login_required
 @csrf_exempt
 def proxy_m3u(request):
     """Proxy view to fetch M3U playlists and TS segments, bypassing CORS."""
     url = request.GET.get('url')
     if not url:
         return HttpResponse("Missing URL", status=400)
+    
+    # Security: Allowlist of domains for IPTV sources
+    from urllib.parse import urlparse
+    parsed_url = urlparse(url)
+    allowed_domains = [
+        'iptv-org.github.io',
+        # Add other trusted IPTV sources here
+    ]
+    
+    if not any(parsed_url.netloc.endswith(domain) for domain in allowed_domains):
+        return HttpResponse("URL not allowed", status=403)
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -1485,7 +1535,7 @@ def proxy_m3u(request):
             url,
             headers=headers,
             timeout=15,
-            verify=False,  # Many IPTV streams have self-signed certs
+            verify=True,  # Enable SSL verification for security
             stream=True,
             allow_redirects=True,
         )

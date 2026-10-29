@@ -272,8 +272,8 @@ class ChatMessage(models.Model):
         ordering = ['-timestamp']
     
     def save(self, *args, **kwargs):
-        # Set expiration time for stranger chat messages (24 hours)
-        if not self.expires_at and self.room.room_type == 'stranger':
+        # Set expiration time ONLY for stranger chat messages (24 hours)
+        if not self.expires_at and self.room and self.room.room_type == 'stranger':
             self.expires_at = timezone.now() + timedelta(hours=24)
         super().save(*args, **kwargs)
     
