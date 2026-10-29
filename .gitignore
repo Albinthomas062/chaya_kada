@@ -19,3 +19,5 @@ yarn-error.log
 venv/
 **/staticfiles/
 staticfiles/
+dump.rdb
+media/items/test_*.png

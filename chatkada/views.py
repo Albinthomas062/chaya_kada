@@ -9,7 +9,9 @@ from django.utils import timezone
 from django.db.models import Q, Count, Sum
 from django.db import transaction
 from django.urls import reverse
+from django.core.cache import cache
 from datetime import date, timedelta
+import time
 from .models import (
     Item, Purchase, ChatMessage, UserProfile, ChatRoom, 
     BenchInvite, DailyChallenge, CoinTransaction, UserChatHistory,
@@ -24,6 +26,53 @@ from django.contrib.auth.models import User
 import requests as req_lib
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Login rate limiting constants
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_LOCKOUT_DURATION = 900  # 15 minutes in seconds
+
+
+def get_client_ip(request):
+    """Get client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
+
+def get_login_lockout_key(username, ip_address):
+    """Generate cache key for login lockout tracking"""
+    return f'user_login_attempts_{username}_{ip_address}'
+
+
+def check_user_login_attempts(username, ip_address):
+    """Check if user is locked out due to failed login attempts"""
+    key = get_login_lockout_key(username, ip_address)
+    attempts_data = cache.get(key)
+    
+    if attempts_data:
+        attempts, last_attempt = attempts_data
+        if attempts >= MAX_LOGIN_ATTEMPTS:
+            if time.time() - last_attempt < LOGIN_LOCKOUT_DURATION:
+                return False
+    return True
+
+
+def record_user_login_attempt(username, ip_address, success=False):
+    """Record a user login attempt"""
+    key = get_login_lockout_key(username, ip_address)
+    
+    if success:
+        cache.delete(key)
+    else:
+        attempts_data = cache.get(key)
+        if attempts_data:
+            attempts, _ = attempts_data
+            cache.set(key, [attempts + 1, time.time()], LOGIN_LOCKOUT_DURATION)
+        else:
+            cache.set(key, [1, time.time()], LOGIN_LOCKOUT_DURATION)
 
 def home(request):
     return render(request, 'home.html')
@@ -78,6 +127,48 @@ def custom_logout(request):
     logout(request)
     messages.success(request, f'Goodbye {username}! You have been logged out successfully.')
     return redirect('home')
+
+def login_view(request):
+    """Custom login view that checks for banned users and rate limits"""
+    if request.user.is_authenticated:
+        return redirect('kada')
+    
+    if request.method == 'POST':
+        username = request.POST.get('username', '').strip()
+        password = request.POST.get('password', '')
+        ip_address = get_client_ip(request)
+        
+        # Check rate limiting
+        if not check_user_login_attempts(username, ip_address):
+            messages.error(
+                request,
+                f"Too many failed login attempts. Please try again in {LOGIN_LOCKOUT_DURATION // 60} minutes."
+            )
+            return render(request, 'registration/login.html')
+        
+        # Check if user exists and is banned
+        try:
+            user_obj = User.objects.get(username=username)
+            if not user_obj.is_active:
+                messages.error(request, 'Your account has been banned. Please contact support.')
+                return render(request, 'registration/login.html')
+        except User.DoesNotExist:
+            pass  # Will fail authentication below
+        
+        # Authenticate
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            record_user_login_attempt(username, ip_address, success=True)
+            messages.success(request, f'Welcome back, {username}!')
+            next_url = request.GET.get('next', 'kada')
+            return redirect(next_url)
+        else:
+            record_user_login_attempt(username, ip_address, success=False)
+            messages.error(request, 'Invalid username or password.')
+    
+    return render(request, 'registration/login.html')
 
 @login_required
 def kada(request):

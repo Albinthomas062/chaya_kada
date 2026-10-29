@@ -191,6 +191,32 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
+# Cloudinary configuration (optional)
+CLOUDINARY_URL = config("CLOUDINARY_URL", default=None)
+
+if CLOUDINARY_URL:
+    # Use Cloudinary for media storage if configured
+    INSTALLED_APPS.insert(0, 'cloudinary_storage')
+    INSTALLED_APPS.insert(0, 'cloudinary')
+    
+    CLOUDINARY_STORAGE = {
+        'CLOUDINARY_URL': CLOUDINARY_URL,
+    }
+    
+    # For Django 4.2+ (STORAGES setting)
+    STORAGES = {
+        "default": {
+            "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+else:
+    # Local media storage (default)
+    # In production without Cloudinary, serve via whitenoise or document nginx setup
+    pass
+
 # Session settings
 SESSION_COOKIE_AGE = 3600 * 12  # 12 hours
 SESSION_SAVE_EVERY_REQUEST = True

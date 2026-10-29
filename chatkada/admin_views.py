@@ -1,6 +1,3 @@
-"""
-Custom admin views with enhanced security and management features
-"""
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.admin.views.decorators import staff_member_required
@@ -12,6 +9,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_http_methods
+from django.core.cache import cache
 from datetime import timedelta
 import time
 
@@ -21,8 +19,7 @@ from .models import (
 )
 from .forms import ItemForm
 
-# Login attempt tracking (in-memory for simplicity, use Redis/cache in production)
-LOGIN_ATTEMPTS = {}
+# Login attempt tracking (use cache - Redis in production)
 MAX_ATTEMPTS = 5
 LOCKOUT_DURATION = 900  # 15 minutes in seconds
 
@@ -32,10 +29,18 @@ def is_staff_user(user):
     return user.is_staff or user.is_superuser
 
 
-def check_login_attempts(username):
+def get_lockout_key(username, ip_address):
+    """Generate cache key for lockout tracking"""
+    return f'login_attempts_{username}_{ip_address}'
+
+
+def check_login_attempts(username, ip_address):
     """Check if user is locked out due to failed attempts"""
-    if username in LOGIN_ATTEMPTS:
-        attempts, last_attempt = LOGIN_ATTEMPTS[username]
+    key = get_lockout_key(username, ip_address)
+    attempts_data = cache.get(key)
+    
+    if attempts_data:
+        attempts, last_attempt = attempts_data
         if attempts >= MAX_ATTEMPTS:
             # Check if lockout period has passed
             if time.time() - last_attempt < LOCKOUT_DURATION:
@@ -43,18 +48,30 @@ def check_login_attempts(username):
     return True, 0
 
 
-def record_login_attempt(username, success=False):
+def record_login_attempt(username, ip_address, success=False):
     """Record a login attempt"""
+    key = get_lockout_key(username, ip_address)
+    
     if success:
         # Clear attempts on successful login
-        if username in LOGIN_ATTEMPTS:
-            del LOGIN_ATTEMPTS[username]
+        cache.delete(key)
     else:
-        if username not in LOGIN_ATTEMPTS:
-            LOGIN_ATTEMPTS[username] = [1, time.time()]
+        attempts_data = cache.get(key)
+        if attempts_data:
+            attempts, _ = attempts_data
+            cache.set(key, [attempts + 1, time.time()], LOCKOUT_DURATION)
         else:
-            LOGIN_ATTEMPTS[username][0] += 1
-            LOGIN_ATTEMPTS[username][1] = time.time()
+            cache.set(key, [1, time.time()], LOCKOUT_DURATION)
+
+
+def get_client_ip(request):
+    """Get client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
 
 
 def custom_admin_login(request):
@@ -62,14 +79,22 @@ def custom_admin_login(request):
     # Redirect if already authenticated as staff
     if request.user.is_authenticated and is_staff_user(request.user):
         next_url = request.GET.get('next', 'custom_admin_dashboard')
-        return redirect(next_url)
+        # Validate next_url to prevent open redirect
+        if next_url and url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure()
+        ):
+            return redirect(next_url)
+        return redirect('custom_admin_dashboard')
     
     if request.method == "POST":
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '')
+        ip_address = get_client_ip(request)
         
         # Check rate limiting
-        allowed, remaining = check_login_attempts(username)
+        allowed, remaining = check_login_attempts(username, ip_address)
         if not allowed:
             messages.error(
                 request, 
@@ -83,7 +108,7 @@ def custom_admin_login(request):
         
         if user is not None and is_staff_user(user):
             login(request, user)
-            record_login_attempt(username, success=True)
+            record_login_attempt(username, ip_address, success=True)
             
             # Handle 'next' parameter safely (prevent open redirects)
             next_url = request.POST.get('next') or request.GET.get('next', '')
@@ -95,8 +120,9 @@ def custom_admin_login(request):
                 return redirect(next_url)
             return redirect('custom_admin_dashboard')
         else:
-            record_login_attempt(username, success=False)
-            attempts_left = MAX_ATTEMPTS - (LOGIN_ATTEMPTS.get(username, [0])[0])
+            record_login_attempt(username, ip_address, success=False)
+            attempts_data = cache.get(get_lockout_key(username, ip_address))
+            attempts_left = MAX_ATTEMPTS - (attempts_data[0] if attempts_data else 0)
             
             if attempts_left > 0:
                 messages.error(
@@ -355,19 +381,41 @@ def view_user(request, user_id):
 @staff_member_required(login_url='custom_admin_login')
 @require_http_methods(["POST"])
 def adjust_user_coins(request, user_id):
-    """Adjust user coins"""
+    """Adjust user coins with validation"""
     user = get_object_or_404(User, id=user_id)
     profile = user.userprofile
     
-    amount = int(request.POST.get('amount', 0))
-    reason = request.POST.get('reason', 'Admin adjustment').strip()
+    # Validate amount
+    amount_str = request.POST.get('amount', '').strip()
+    reason = request.POST.get('reason', '').strip()
+    
+    if not amount_str:
+        messages.error(request, "Amount is required.")
+        return redirect('view_user', user_id=user_id)
+    
+    try:
+        amount = int(amount_str)
+    except ValueError:
+        messages.error(request, "Amount must be a valid integer.")
+        return redirect('view_user', user_id=user_id)
     
     if amount == 0:
         messages.error(request, "Amount cannot be zero.")
         return redirect('view_user', user_id=user_id)
     
+    # Validate reason
+    if not reason:
+        messages.error(request, "Reason is required.")
+        return redirect('view_user', user_id=user_id)
+    
+    # Check for negative balance
+    new_balance = profile.coins + amount
+    if new_balance < 0:
+        messages.error(request, f"Cannot deduct {abs(amount)} coins. User only has {profile.coins} coins.")
+        return redirect('view_user', user_id=user_id)
+    
     # Update coins
-    profile.coins += amount
+    profile.coins = new_balance
     profile.save()
     
     # Record transaction

@@ -4,7 +4,6 @@
 {% block title %}{{ room.name }} - 3D Theatre - Chaya Kada{% endblock %}
 
 {% block extra_head %}
-<script src="{% static 'js/three.min.js' %}" ></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 {% endblock %}
 
@@ -147,6 +146,7 @@
     background: #000;
     overflow: hidden;
     font-family: var(--font-family, 'Inter', sans-serif);
+    z-index: 9999;  /* Above navbar */
 }
 
 .theatre-canvas {
@@ -783,6 +783,7 @@ let theatreSocket = null;
 let hls = null;
 let channels = [];
 let isVideoOnlyMode = false;
+let is2DMode = false;
 let fpsCounter = 0;
 let lastTime = Date.now();
 
@@ -839,6 +840,7 @@ function checkReducedMotion() {
 
 function initFallbackMode() {
     console.log('Initializing fallback 2D mode');
+    is2DMode = true;
     document.getElementById('theatre-canvas').style.display = 'none';
     document.getElementById('fallback-theatre').style.display = 'flex';
     
@@ -846,7 +848,22 @@ function initFallbackMode() {
     const theatreVideo = document.getElementById('theatre-video');
     
     // Share video source
-    fallbackVideo.src = theatreVideo.src;
+    if (theatreVideo && theatreVideo.src) {
+        fallbackVideo.src = theatreVideo.src;
+    }
+    
+    // Wire up 2D seat buttons
+    document.querySelectorAll('.fallback-seat:not(.occupied)').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const seatNum = parseInt(btn.dataset.seat);
+            if (seatNum && theatreSocket && theatreSocket.readyState === WebSocket.OPEN) {
+                theatreSocket.send(JSON.stringify({
+                    action: 'take_seat',
+                    seat_number: seatNum
+                }));
+            }
+        });
+    });
     
     hideTheatreLoading();
     showToast('Using 2D fallback mode', 'info');
@@ -1407,6 +1424,11 @@ function connectWebSocket() {
             addChatMessage(data);
         } else if (data.action === 'seat_update') {
             updateSeatVisual(data.seat_number, data.username);
+        } else if (data.action === 'seat_confirmed') {
+            showToast(`You're seated in S${data.seat_number}`, 'success');
+            currentSeat = data.seat_number;
+        } else if (data.action === 'seat_error') {
+            showToast(data.message || 'Could not take seat', 'error');
         } else if (data.action === 'channel_sync') {
             if (data.username !== CURRENT_USERNAME) {
                 loadChannel(data.channel_url, false);
@@ -1527,9 +1549,10 @@ function showChatBubble(username, message) {
     const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
     const sprite = new THREE.Sprite(spriteMaterial);
     
-    sprite.scale.set(2, 1, 1);
+    // Position above seat (sprites auto-billboard toward camera)
+    sprite.scale.set(2.5, 1.25, 1);
     sprite.position.copy(userSeat.position);
-    sprite.position.y += 0.8;  // Float above seat
+    sprite.position.y += 1.2;  // Float well above seat
     
     scene.add(sprite);
     
@@ -1543,7 +1566,7 @@ function showChatBubble(username, message) {
         
         if (progress < 1) {
             sprite.material.opacity = 1 - progress;
-            sprite.position.y += 0.0005;  // Slowly rise
+            sprite.position.y += 0.001;  // Slowly rise
             requestAnimationFrame(animateBubble);
         } else {
             scene.remove(sprite);
@@ -1668,25 +1691,38 @@ function parseM3U(content) {
         const line = lines[i].trim();
         
         if (line.startsWith('#EXTINF:')) {
-            const lastCommaIndex = line.lastIndexOf(',');
-            if (lastCommaIndex === -1) continue;
+            // Find the first comma after the attributes section (not the last comma)
+            // Format: #EXTINF:-1 key="val" key2="val2",Title Here, With Commas
+            const extinfContent = line.substring(8); // Remove '#EXTINF:'
             
-            const attributesSection = line.substring(8, lastCommaIndex);
-            const title = line.substring(lastCommaIndex + 1).trim();
-            
-            if (!title) continue;
-            
-            let category = 'General';
-            const groupMatch = attributesSection.match(/group-title="([^"]*)"/);
-            if (groupMatch) {
-                category = groupMatch[1];
+            // Find where attributes end (after last closing quote or after duration number)
+            let attributesEndIndex = 0;
+            let inQuote = false;
+            for (let j = 0; j < extinfContent.length; j++) {
+                if (extinfContent[j] === '"') {
+                    inQuote = !inQuote;
+                    attributesEndIndex = j + 1;
+                } else if (!inQuote && extinfContent[j] === ',') {
+                    // First comma after attributes
+                    const attributesSection = extinfContent.substring(0, j);
+                    const title = extinfContent.substring(j + 1).trim();
+                    
+                    if (!title) continue;
+                    
+                    let category = 'General';
+                    const groupMatch = attributesSection.match(/group-title="([^"]*)"/);
+                    if (groupMatch) {
+                        category = groupMatch[1];
+                    }
+                    
+                    currentChannel = {
+                        name: title,
+                        category: category,
+                        url: null
+                    };
+                    break;
+                }
             }
-            
-            currentChannel = {
-                name: title,
-                category: category,
-                url: null
-            };
         } else if (line && !line.startsWith('#') && currentChannel) {
             currentChannel.url = line;
             
@@ -1815,8 +1851,9 @@ document.getElementById('theatre-video').addEventListener('durationchange', (e) 
 document.getElementById('change-channel-btn').addEventListener('click', showChannelModal);
 
 document.getElementById('fullscreen-btn').addEventListener('click', () => {
+    const theatreApp = document.getElementById('theatre-app');
     if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
+        theatreApp.requestFullscreen();
     } else {
         document.exitFullscreen();
     }

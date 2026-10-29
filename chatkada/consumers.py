@@ -195,14 +195,36 @@ class TheatreConsumer(AsyncWebsocketConsumer):
                     }
                 )
         
+        elif action == 'reaction':
+            emoji = data.get('emoji')
+            if emoji and self.user.is_authenticated:
+                # Rate limit: check last reaction time (simple in-memory check)
+                now = timezone.now().timestamp()
+                last_reaction_key = f'last_reaction_{self.user.id}'
+                last_reaction = getattr(self, last_reaction_key, 0)
+                
+                if now - last_reaction < 1:  # 1 second rate limit
+                    return
+                
+                setattr(self, last_reaction_key, now)
+                
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'reaction',
+                        'emoji': emoji,
+                        'username': self.user.username
+                    }
+                )
+        
         elif action == 'take_seat':
             seat_number = data.get('seat_number')
             if seat_number and self.user.is_authenticated:
                 # Get user avatar safely
                 user_avatar = await self.get_user_avatar()
-                success = await self.claim_seat(seat_number)
+                result = await self.claim_seat(seat_number)
                 
-                if success:
+                if result['success']:
                     await self.channel_layer.group_send(
                         self.room_group_name,
                         {
@@ -212,6 +234,29 @@ class TheatreConsumer(AsyncWebsocketConsumer):
                             'avatar': user_avatar
                         }
                     )
+                    # Send confirmation to this user
+                    await self.send(text_data=json.dumps({
+                        'action': 'seat_confirmed',
+                        'seat_number': seat_number
+                    }))
+                    
+                    # Broadcast old seat as freed if there was one
+                    if result['old_seat']:
+                        await self.channel_layer.group_send(
+                            self.room_group_name,
+                            {
+                                'type': 'seat_update',
+                                'seat_number': result['old_seat'],
+                                'username': None,
+                                'avatar': None
+                            }
+                        )
+                else:
+                    # Send error to this user
+                    await self.send(text_data=json.dumps({
+                        'action': 'seat_error',
+                        'message': 'Seat is already occupied'
+                    }))
         
         elif action == 'sync_video':
             # E.g. to broadcast play/pause/seek events to others
@@ -289,18 +334,30 @@ class TheatreConsumer(AsyncWebsocketConsumer):
     def claim_seat(self, seat_number):
         try:
             room = ChatRoom.objects.get(room_id=self.room_name)
+            
+            # Find if user has an old seat
+            old_seat_obj = TheatreSeat.objects.filter(room=room, occupant=self.user).first()
+            old_seat_number = old_seat_obj.seat_number if old_seat_obj else None
+            
+            # Check if the requested seat is available
+            seat, created = TheatreSeat.objects.get_or_create(room=room, seat_number=seat_number)
+            
+            if seat.occupant is not None and seat.occupant != self.user:
+                # Seat is occupied by someone else
+                return {'success': False, 'old_seat': None}
+            
             # Remove user from any other seat in this room first
-            TheatreSeat.objects.filter(room=room, occupant=self.user).update(occupant=None)
+            if old_seat_obj and old_seat_obj.seat_number != seat_number:
+                old_seat_obj.occupant = None
+                old_seat_obj.save()
             
             # Claim the new seat
-            seat, created = TheatreSeat.objects.get_or_create(room=room, seat_number=seat_number)
-            if seat.occupant is None or seat.occupant == self.user:
-                seat.occupant = self.user
-                seat.save()
-                return True
-            return False
+            seat.occupant = self.user
+            seat.save()
+            
+            return {'success': True, 'old_seat': old_seat_number if old_seat_number != seat_number else None}
         except ChatRoom.DoesNotExist:
-            return False
+            return {'success': False, 'old_seat': None}
 
     @database_sync_to_async
     def leave_seat(self):
