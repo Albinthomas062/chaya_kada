@@ -17,3 +17,5 @@ yarn-error.log
 *.sqlite3
 *.log
 venv/
+**/staticfiles/
+staticfiles/

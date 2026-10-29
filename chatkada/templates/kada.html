@@ -14,7 +14,13 @@
             <div class="items-grid">
                 {% for item in chai_items %}
                 <div class="item-card">
-                    <div class="item-emoji">{{ item.emoji }}</div>
+                    <div class="item-emoji">
+                        {% if item.image %}
+                        <img src="{{ item.image.url }}" alt="{{ item.name }}" class="item-image">
+                        {% else %}
+                        {{ item.emoji }}
+                        {% endif %}
+                    </div>
                     <div class="item-name">{{ item.name }}</div>
                     <div class="item-price">{{ item.price }} coins</div>
                     <button class="btn btn-primary buy-btn" onclick="buyItem({{ item.id }})">
@@ -30,7 +36,13 @@
             <div class="items-grid">
                 {% for item in snack_items %}
                 <div class="item-card">
-                    <div class="item-emoji">{{ item.emoji }}</div>
+                    <div class="item-emoji">
+                        {% if item.image %}
+                        <img src="{{ item.image.url }}" alt="{{ item.name }}" class="item-image">
+                        {% else %}
+                        {{ item.emoji }}
+                        {% endif %}
+                    </div>
                     <div class="item-name">{{ item.name }}</div>
                     <div class="item-price">{{ item.price }} coins</div>
                     <button class="btn btn-primary buy-btn" onclick="buyItem({{ item.id }})">
@@ -46,7 +58,13 @@
             <div class="items-grid">
                 {% for item in sweet_items %}
                 <div class="item-card">
-                    <div class="item-emoji">{{ item.emoji }}</div>
+                    <div class="item-emoji">
+                        {% if item.image %}
+                        <img src="{{ item.image.url }}" alt="{{ item.name }}" class="item-image">
+                        {% else %}
+                        {{ item.emoji }}
+                        {% endif %}
+                    </div>
                     <div class="item-name">{{ item.name }}</div>
                     <div class="item-price">{{ item.price }} coins</div>
                     <button class="btn btn-primary buy-btn" onclick="buyItem({{ item.id }})">
@@ -69,6 +87,15 @@
 {% endblock %}
 
 {% block extra_js %}
+<style>
+.item-emoji .item-image {
+    width: 100%;
+    max-width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 12px;
+}
+</style>
 <script>
 function buyItem(itemId) {
     fetch('/buy-item/', {

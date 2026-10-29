@@ -81,15 +81,17 @@ def custom_logout(request):
 
 @login_required
 def kada(request):
-    items = Item.objects.filter(available=True)
+    items = Item.objects.filter(available=True).order_by('sort_order', 'category', 'name')
     chai_items = items.filter(category='chai')
     snack_items = items.filter(category='snacks')
     sweet_items = items.filter(category='sweets')
+    gift_items = items.filter(category='gifts')
     
     context = {
         'chai_items': chai_items,
         'snack_items': snack_items,
         'sweet_items': sweet_items,
+        'gift_items': gift_items,
         'user_coins': request.user.userprofile.coins
     }
     return render(request, 'kada.html', context)

@@ -40,7 +40,7 @@ urlpatterns = [
     path('proxy-m3u/', views.proxy_m3u, name='proxy_m3u'),
     
     # Item management for admin
-    path('custom-admin/login/', views.custom_admin_login, name='custom_admin_login'),
+    path('custom-admin/login/', admin_views.custom_admin_login, name='custom_admin_login'),
     path('custom-admin/logout/', admin_views.custom_admin_logout, name='custom_admin_logout'),
     path('custom-admin/', admin_views.custom_admin_dashboard, name='custom_admin_dashboard'),
     path('custom-admin/items/', admin_views.manage_items, name='manage_items'),

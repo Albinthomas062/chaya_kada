@@ -29,9 +29,27 @@ LOGOUT_REDIRECT_URL = '/'
 SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG =  config("DEBUG", default=False, cast=bool)
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=lambda v: [s.strip() for s in v.split(",")])
+
+# CSRF trusted origins
+CSRF_TRUSTED_ORIGINS = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:8000,http://127.0.0.1:8000",
+    cast=lambda v: [s.strip() for s in v.split(",")]
+)
+
+# Production security settings
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Application definition
@@ -168,7 +186,8 @@ SESSION_SAVE_EVERY_REQUEST = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CRONJOBS = [
-    ('0 * * * *', 'chatkada.management.commands.cleanup_expired_messages.Command'),  # Every hour
+    # Add your cron jobs here if needed
+    # Example: ('0 2 * * *', 'chatkada.tasks.cleanup_old_messages'),
 ]
 
 
