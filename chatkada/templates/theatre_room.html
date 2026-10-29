@@ -76,11 +76,21 @@
         <div id="chat-panel" class="chat-panel">
             <div class="chat-header">
                 <i class="fas fa-comments"></i> Chat
-                <button class="chat-toggle" onclick="toggleChat()">
+                <button class="chat-toggle" aria-label="Toggle chat" onclick="toggleChat()">
                     <i class="fas fa-chevron-down"></i>
                 </button>
             </div>
             <div class="chat-messages" id="chat-messages"></div>
+            
+            <!-- Reaction Bar -->
+            <div class="reaction-bar">
+                <button class="reaction-btn" onclick="sendReaction('❤️')" title="Love">❤️</button>
+                <button class="reaction-btn" onclick="sendReaction('😂')" title="Laugh">😂</button>
+                <button class="reaction-btn" onclick="sendReaction('😮')" title="Wow">😮</button>
+                <button class="reaction-btn" onclick="sendReaction('👏')" title="Applause">👏</button>
+                <button class="reaction-btn" onclick="sendReaction('☕')" title="Tea">☕</button>
+            </div>
+            
             <div class="chat-input-wrapper">
                 <input type="text" id="chat-input" placeholder="Type a message..." maxlength="200">
                 <button id="send-btn" class="icon-btn-small">
@@ -1401,6 +1411,8 @@ function connectWebSocket() {
             if (data.username !== CURRENT_USERNAME) {
                 loadChannel(data.channel_url, false);
             }
+        } else if (data.action === 'reaction') {
+            showReactionSprite(data.username, data.emoji);
         }
     };
     
@@ -1415,6 +1427,8 @@ function connectWebSocket() {
 }
 
 // ==================== Chat ====================
+const chatBubbles = [];  // Track active 3D chat bubbles
+
 function addChatMessage(data) {
     const container = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
@@ -1432,6 +1446,113 @@ function addChatMessage(data) {
     
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
+    
+    // Show 3D chat bubble above sender's seat
+    if (!is2DMode) {
+        showChatBubble(data.username, data.message);
+    }
+}
+
+function showChatBubble(username, message) {
+    // Find the user's seat
+    const userSeat = seats3D.find(s => s.userData.occupant === username);
+    if (!userSeat) return;
+    
+    // Create sprite for chat bubble
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 512;
+    canvas.height = 256;
+    
+    // Draw bubble background
+    ctx.fillStyle = 'rgba(212, 175, 55, 0.95)';
+    ctx.strokeStyle = '#8B5E34';
+    ctx.lineWidth = 4;
+    
+    const bubbleWidth = canvas.width - 20;
+    const bubbleHeight = 80;
+    const x = 10;
+    const y = 10;
+    const radius = 15;
+    
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + bubbleWidth - radius, y);
+    ctx.quadraticCurveTo(x + bubbleWidth, y, x + bubbleWidth, y + radius);
+    ctx.lineTo(x + bubbleWidth, y + bubbleHeight - radius);
+    ctx.quadraticCurveTo(x + bubbleWidth, y + bubbleHeight, x + bubbleWidth - radius, y + bubbleHeight);
+    ctx.lineTo(x + radius, y + bubbleHeight);
+    ctx.quadraticCurveTo(x, y + bubbleHeight, x, y + bubbleHeight - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw text
+    ctx.fillStyle = '#1a0f0a';
+    ctx.font = 'bold 32px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Word wrap
+    const maxWidth = bubbleWidth - 40;
+    const words = message.split(' ');
+    let line = '';
+    let lines = [];
+    
+    for (let word of words) {
+        const testLine = line + word + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && line !== '') {
+            lines.push(line);
+            line = word + ' ';
+        } else {
+            line = testLine;
+        }
+    }
+    lines.push(line);
+    
+    // Limit to 2 lines
+    lines = lines.slice(0, 2);
+    const lineHeight = 36;
+    const startY = y + bubbleHeight / 2 - (lines.length - 1) * lineHeight / 2;
+    
+    lines.forEach((line, i) => {
+        ctx.fillText(line.trim(), canvas.width / 2, startY + i * lineHeight);
+    });
+    
+    // Create sprite
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(spriteMaterial);
+    
+    sprite.scale.set(2, 1, 1);
+    sprite.position.copy(userSeat.position);
+    sprite.position.y += 0.8;  // Float above seat
+    
+    scene.add(sprite);
+    
+    // Animate: fade out and remove
+    const startTime = Date.now();
+    const duration = 4000;  // 4 seconds
+    
+    const animateBubble = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = elapsed / duration;
+        
+        if (progress < 1) {
+            sprite.material.opacity = 1 - progress;
+            sprite.position.y += 0.0005;  // Slowly rise
+            requestAnimationFrame(animateBubble);
+        } else {
+            scene.remove(sprite);
+            sprite.material.map.dispose();
+            sprite.material.dispose();
+        }
+    };
+    
+    animateBubble();
 }
 
 function sendChatMessage() {
@@ -1451,6 +1572,70 @@ function sendChatMessage() {
 function toggleChat() {
     const panel = document.getElementById('chat-panel');
     panel.classList.toggle('collapsed');
+}
+
+function sendReaction(emoji) {
+    if (!theatreSocket || theatreSocket.readyState !== WebSocket.OPEN) return;
+    
+    theatreSocket.send(JSON.stringify({
+        action: 'reaction',
+        emoji: emoji
+    }));
+    
+    // Show own reaction immediately
+    showReactionSprite(CURRENT_USERNAME, emoji);
+}
+
+function showReactionSprite(username, emoji) {
+    if (is2DMode) return;  // Only in 3D mode
+    
+    // Find user's seat
+    const userSeat = seats3D.find(s => s.userData.occupant === username);
+    if (!userSeat) return;
+    
+    // Create emoji sprite
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 128;
+    canvas.height = 128;
+    
+    ctx.font = 'bold 96px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, 64, 64);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(spriteMaterial);
+    
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.position.copy(userSeat.position);
+    sprite.position.y += 0.5;
+    
+    scene.add(sprite);
+    
+    // Animate: rise and fade
+    const startTime = Date.now();
+    const duration = 2000;
+    const riseSpeed = 0.002;
+    
+    const animateReaction = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = elapsed / duration;
+        
+        if (progress < 1) {
+            sprite.position.y += riseSpeed;
+            sprite.material.opacity = 1 - progress;
+            sprite.scale.set(0.5 + progress * 0.3, 0.5 + progress * 0.3, 1);
+            requestAnimationFrame(animateReaction);
+        } else {
+            scene.remove(sprite);
+            sprite.material.map.dispose();
+            sprite.material.dispose();
+        }
+    };
+    
+    animateReaction();
 }
 
 // ==================== Channel Management ====================
