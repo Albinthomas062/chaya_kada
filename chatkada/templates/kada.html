@@ -74,6 +74,28 @@
                 {% endfor %}
             </div>
         </div>
+        
+        <div class="menu-category">
+            <h2><i class="fas fa-gift"></i> Gifts</h2>
+            <div class="items-grid">
+                {% for item in gift_items %}
+                <div class="item-card">
+                    <div class="item-emoji">
+                        {% if item.image %}
+                        <img src="{{ item.image.url }}" alt="{{ item.name }}" class="item-image">
+                        {% else %}
+                        {{ item.emoji }}
+                        {% endif %}
+                    </div>
+                    <div class="item-name">{{ item.name }}</div>
+                    <div class="item-price">{{ item.price }} coins</div>
+                    <button class="btn btn-primary buy-btn" onclick="buyItem({{ item.id }})">
+                        <i class="fas fa-shopping-cart"></i> Buy
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
     </div>
 
     <div class="kada-actions">

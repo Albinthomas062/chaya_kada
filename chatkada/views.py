@@ -85,7 +85,7 @@ def kada(request):
     chai_items = items.filter(category='chai')
     snack_items = items.filter(category='snacks')
     sweet_items = items.filter(category='sweets')
-    gift_items = items.filter(category='gifts')
+    gift_items = items.filter(category='gifts')  # Include gifts
     
     context = {
         'chai_items': chai_items,
@@ -1557,6 +1557,11 @@ def create_theatre_room(request):
 def theatre_room_view(request, room_id):
     """View for the theatre UI"""
     room = get_object_or_404(ChatRoom, room_id=room_id, room_type='theatre')
+    
+    # Block access to closed rooms
+    if not room.is_active:
+        messages.error(request, 'This theatre room has been closed')
+        return redirect('home')
     
     # Add viewer to participants if not already (Issue 9 fix)
     if not room.participants.filter(id=request.user.id).exists():
