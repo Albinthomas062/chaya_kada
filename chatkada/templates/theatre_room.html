@@ -62,6 +62,9 @@
                 <button id="video-only-btn" class="icon-btn" title="Video Only Mode">
                     <i class="fas fa-film"></i>
                 </button>
+                <button id="theatre-audio-btn" class="icon-btn" title="Audio Controls">
+                    <i class="fas fa-volume-up"></i>
+                </button>
                 <button id="share-btn" class="icon-btn" title="Share Room">
                     <i class="fas fa-share"></i>
                 </button>
@@ -1346,8 +1349,7 @@ function takeSeat(seatNumber) {
         seat_number: seatNumber
     }));
     
-    currentSeat = seatNumber;
-    showToast(`You're seated in S${seatNumber}`, 'success');
+    // Don't show toast here - wait for server confirmation
     animateCameraToSeat(seatNumber);
 }
 
@@ -1605,8 +1607,7 @@ function sendReaction(emoji) {
         emoji: emoji
     }));
     
-    // Show own reaction immediately
-    showReactionSprite(CURRENT_USERNAME, emoji);
+    // Don't show own reaction here - wait for server echo to avoid duplicates
 }
 
 function showReactionSprite(username, emoji) {
@@ -1865,10 +1866,26 @@ document.getElementById('video-only-btn').addEventListener('click', () => {
     if (isVideoOnlyMode) {
         document.querySelector('.theatre-ui').style.display = 'none';
         document.getElementById('chat-panel').style.display = 'none';
-        showToast('Video-only mode', 'info');
+        
+        // Show exit button for video-only mode
+        let exitBtn = document.getElementById('video-only-exit-btn');
+        if (!exitBtn) {
+            exitBtn = document.createElement('button');
+            exitBtn.id = 'video-only-exit-btn';
+            exitBtn.className = 'icon-btn';
+            exitBtn.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10002; background: rgba(0,0,0,0.8);';
+            exitBtn.innerHTML = '<i class="fas fa-times"></i> Exit Video-Only';
+            exitBtn.onclick = () => document.getElementById('video-only-btn').click();
+            document.body.appendChild(exitBtn);
+        }
+        exitBtn.style.display = 'block';
+        showToast('Video-only mode (press Esc to exit)', 'info');
     } else {
         document.querySelector('.theatre-ui').style.display = 'block';
         document.getElementById('chat-panel').style.display = 'flex';
+        
+        const exitBtn = document.getElementById('video-only-exit-btn');
+        if (exitBtn) exitBtn.style.display = 'none';
     }
 });
 
@@ -1878,6 +1895,15 @@ document.getElementById('share-btn').addEventListener('click', () => {
     }).catch(() => {
         showToast('Failed to copy link', 'error');
     });
+});
+
+// Theatre audio control button
+document.getElementById('theatre-audio-btn').addEventListener('click', () => {
+    // Toggle the audio control panel from base.html
+    const audioPanel = document.getElementById('audio-control-panel');
+    if (audioPanel) {
+        audioPanel.classList.toggle('active');
+    }
 });
 
 document.getElementById('send-btn').addEventListener('click', sendChatMessage);
@@ -1897,12 +1923,18 @@ document.getElementById('channel-search').addEventListener('input', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+    // Exit video-only mode on Escape
     if (e.key === 'Escape') {
-        closeChannelModal();
+        if (isVideoOnlyMode) {
+            document.getElementById('video-only-btn').click();
+        } else {
+            closeChannelModal();
+        }
     }
     
-    // Debug: Toggle FPS counter with F
-    if (e.key === 'f' || e.key === 'F') {
+    // Debug: Toggle FPS counter with F (only when not typing in input/textarea)
+    if ((e.key === 'f' || e.key === 'F') && 
+        !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
         const fps = document.getElementById('fps-counter');
         fps.style.display = fps.style.display === 'none' ? 'block' : 'none';
     }

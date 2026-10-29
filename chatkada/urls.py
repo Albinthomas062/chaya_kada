@@ -64,3 +64,23 @@ urlpatterns = [
     path('custom-admin/challenges/assign/', admin_views.assign_challenge, name='assign_challenge'),
     path('custom-admin/analytics/', admin_views.analytics_dashboard, name='analytics_dashboard'),
 ]
+
+# Serve media files in development or when SERVE_MEDIA is True (for self-hosted without Cloudinary)
+from django.conf import settings
+from decouple import config
+
+# Only serve media if not using Cloudinary
+CLOUDINARY_URL = config("CLOUDINARY_URL", default=None)
+SERVE_MEDIA = config("SERVE_MEDIA", default=not bool(CLOUDINARY_URL), cast=bool)
+
+if SERVE_MEDIA:
+    from django.conf.urls.static import static
+    from django.views.static import serve
+    from django.urls import re_path
+    
+    # Serve media files
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve, {
+            'document_root': settings.MEDIA_ROOT,
+        }),
+    ]
