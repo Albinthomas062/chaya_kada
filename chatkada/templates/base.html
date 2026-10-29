@@ -103,13 +103,13 @@
                 <div class="section-header">
                     <h4><i class="fas fa-cloud-rain"></i> Rain Effects</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="rain-toggle" checked>
+                        <input type="checkbox" id="rain-toggle" checked aria-label="Enable rain effects">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Volume</label>
-                    <input type="range" id="rain-volume" min="0" max="100" value="30">
+                    <label for="rain-volume">Volume</label>
+                    <input type="range" id="rain-volume" min="0" max="100" value="30" aria-label="Rain volume">
                     <span id="rain-volume-display">30%</span>
                 </div>
             </div>
@@ -119,18 +119,18 @@
                 <div class="section-header">
                     <h4><i class="fas fa-bolt"></i> Thunder & Lightning</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="thunder-toggle">
+                        <input type="checkbox" id="thunder-toggle" aria-label="Enable thunder and lightning">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Thunder Volume</label>
-                    <input type="range" id="thunder-volume" min="0" max="100" value="25">
+                    <label for="thunder-volume">Thunder Volume</label>
+                    <input type="range" id="thunder-volume" min="0" max="100" value="25" aria-label="Thunder volume">
                     <span id="thunder-volume-display">25%</span>
                 </div>
                 <div class="thunder-frequency">
-                    <label>Frequency</label>
-                    <select id="thunder-frequency">
+                    <label for="thunder-frequency">Frequency</label>
+                    <select id="thunder-frequency" name="thunder-frequency" aria-label="Thunder frequency">
                         <option value="rare">Rare (5-10 min)</option>
                         <option value="occasional" selected>Occasional (2-5 min)</option>
                         <option value="frequent">Frequent (30s-2 min)</option>
@@ -149,13 +149,13 @@
                 <div class="section-header">
                     <h4><i class="fas fa-users"></i> Crowd Ambience</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="crowd-toggle">
+                        <input type="checkbox" id="crowd-toggle" aria-label="Enable crowd ambience">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Volume</label>
-                    <input type="range" id="crowd-volume" min="0" max="100" value="15">
+                    <label for="crowd-volume">Volume</label>
+                    <input type="range" id="crowd-volume" min="0" max="100" value="15" aria-label="Crowd volume">
                     <span id="crowd-volume-display">15%</span>
                 </div>
             </div>
@@ -165,13 +165,13 @@
                 <div class="section-header">
                     <h4><i class="fas fa-radio"></i> Nostalgic Radio</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="music-toggle">
+                        <input type="checkbox" id="music-toggle" aria-label="Enable nostalgic radio music">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Volume</label>
-                    <input type="range" id="music-volume" min="0" max="100" value="25">
+                    <label for="music-volume">Volume</label>
+                    <input type="range" id="music-volume" min="0" max="100" value="25" aria-label="Music volume">
                     <span id="music-volume-display">25%</span>
                 </div>
                 <div class="music-controls">

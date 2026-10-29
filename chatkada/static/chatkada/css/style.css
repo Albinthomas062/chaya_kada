@@ -1412,6 +1412,13 @@ input:checked + .slider:before {
 .audio-control-panel::-webkit-scrollbar-thumb:hover {
     background: var(--primary-color);
 }
+
+/* Raise audio panel above theatre view */
+.theatre-app .audio-control-panel,
+body:has(.theatre-app) .audio-control-panel {
+    z-index: 10001 !important;
+}
+
 /* Enhanced Lightning and Thunder Effects */
 .lightning-container {
     position: fixed;

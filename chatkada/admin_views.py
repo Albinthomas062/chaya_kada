@@ -39,26 +39,36 @@ def get_client_ip(request):
 
 def get_lockout_key(username, ip_address):
     """Generate cache keys for lockout tracking"""
-    # Key both by IP and by username alone (to prevent distributed attacks)
-    return [
-        f'login_attempts_{username}_{ip_address}',
-        f'login_attempts_user_{username}'
-    ]
+    # Key by username+IP for hard lockout, username-only for soft limit
+    return {
+        'hard': f'login_attempts_{username}_{ip_address}',  # Hard lock at MAX_ATTEMPTS
+        'soft': f'login_attempts_user_{username}'           # Soft limit at higher threshold
+    }
 
 
 def check_login_attempts(username, ip_address):
     """Check if user is locked out due to failed attempts"""
     keys = get_lockout_key(username, ip_address)
     
-    # Check both IP-specific and username-only lockouts
-    for key in keys:
-        attempts_data = cache.get(key)
-        if attempts_data:
-            attempts, last_attempt = attempts_data
-            if attempts >= MAX_ATTEMPTS:
-                # Check if lockout period has passed
-                if time.time() - last_attempt < LOCKOUT_DURATION:
-                    return False, MAX_ATTEMPTS - attempts
+    # Hard lockout: username+IP combo (prevents brute force from one IP)
+    hard_key = keys['hard']
+    attempts_data = cache.get(hard_key)
+    if attempts_data:
+        attempts, last_attempt = attempts_data
+        if attempts >= MAX_ATTEMPTS:
+            if time.time() - last_attempt < LOCKOUT_DURATION:
+                return False, MAX_ATTEMPTS - attempts
+    
+    # Soft limit: username-only (prevents account enumeration, but higher threshold)
+    soft_key = keys['soft']
+    soft_attempts_data = cache.get(soft_key)
+    if soft_attempts_data:
+        attempts, last_attempt = soft_attempts_data
+        # Higher threshold (20) for username-only, just slows down, not hard lock
+        if attempts >= 20:
+            if time.time() - last_attempt < LOCKOUT_DURATION:
+                return False, 20 - attempts
+    
     return True, 0
 
 
@@ -68,27 +78,26 @@ def record_login_attempt(username, ip_address, success=False):
     
     if success:
         # Clear both keys on success
-        for key in keys:
-            cache.delete(key)
+        cache.delete(keys['hard'])
+        cache.delete(keys['soft'])
     else:
-        # Increment both counters
-        for key in keys:
-            attempts_data = cache.get(key)
-            if attempts_data:
-                attempts, _ = attempts_data
-                cache.set(key, [attempts + 1, time.time()], LOCKOUT_DURATION)
-            else:
-                cache.set(key, [1, time.time()], LOCKOUT_DURATION)
-
-
-def get_client_ip(request):
-    """Get client IP address from request"""
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR')
-    return ip
+        # Increment hard lockout counter (username+IP)
+        hard_key = keys['hard']
+        attempts_data = cache.get(hard_key)
+        if attempts_data:
+            attempts, _ = attempts_data
+            cache.set(hard_key, [attempts + 1, time.time()], LOCKOUT_DURATION)
+        else:
+            cache.set(hard_key, [1, time.time()], LOCKOUT_DURATION)
+        
+        # Increment soft limit counter (username-only)
+        soft_key = keys['soft']
+        soft_attempts_data = cache.get(soft_key)
+        if soft_attempts_data:
+            attempts, _ = soft_attempts_data
+            cache.set(soft_key, [attempts + 1, time.time()], LOCKOUT_DURATION)
+        else:
+            cache.set(soft_key, [1, time.time()], LOCKOUT_DURATION)
 
 
 def custom_admin_login(request):

@@ -3,10 +3,6 @@
 
 {% block title %}{{ room.name }} - 3D Theatre - Chaya Kada{% endblock %}
 
-{% block extra_head %}
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-{% endblock %}
-
 {% block content %}
 <div id="theatre-app" class="theatre-app">
     <!-- 3D Canvas -->
@@ -150,12 +146,6 @@
     overflow: hidden;
     font-family: var(--font-family, 'Inter', sans-serif);
     z-index: 9999;  /* Above navbar */
-}
-
-/* Hide site navbar in theatre view */
-.theatre-app ~ nav.navbar,
-body:has(.theatre-app) nav.navbar {
-    display: none !important;
 }
 
 .theatre-canvas {
@@ -861,11 +851,11 @@ function initFallbackMode() {
         fallbackVideo.src = theatreVideo.src;
     }
     
-    // Wire up 2D seat buttons
-    document.querySelectorAll('.fallback-seat:not(.occupied)').forEach(btn => {
+    // Wire up ALL 2D seat buttons (not just free ones, so updates work)
+    document.querySelectorAll('.fallback-seat').forEach(btn => {
         btn.addEventListener('click', () => {
             const seatNum = parseInt(btn.dataset.seat);
-            if (seatNum && theatreSocket && theatreSocket.readyState === WebSocket.OPEN) {
+            if (seatNum && !btn.disabled && theatreSocket && theatreSocket.readyState === WebSocket.OPEN) {
                 theatreSocket.send(JSON.stringify({
                     action: 'take_seat',
                     seat_number: seatNum
@@ -1392,47 +1382,62 @@ function takeSeat(seatNumber) {
 }
 
 function updateSeatVisual(seatNumber, occupant) {
+    // Update 3D seats if they exist
     const seatObj = seats3D.find(s => s.userData.seatNumber === seatNumber);
-    if (!seatObj) return;
-    
-    const instanceId = seatObj.instanceId;
-    const color = new THREE.Color();
-    
-    // Determine color based on occupancy
-    if (occupant === CURRENT_USERNAME) {
-        color.set(0xD4AF37);  // Gold for my seat
-    } else if (occupant) {
-        color.set(0x696969);  // Gray for taken
-    } else {
-        color.set(0x8B4513);  // Brown for free
+    if (seatObj) {
+        const instanceId = seatObj.instanceId;
+        const color = new THREE.Color();
+        
+        // Determine color based on occupancy
+        if (occupant === CURRENT_USERNAME) {
+            color.set(0xD4AF37);  // Gold for my seat
+        } else if (occupant) {
+            color.set(0x696969);  // Gray for taken
+        } else {
+            color.set(0x8B4513);  // Brown for free
+        }
+        
+        // Update instance colors for both seat and backrest
+        if (window.seatInstancedMesh) {
+            const colors = window.seatInstancedMesh.geometry.attributes.color;
+            colors.setXYZ(instanceId, color.r, color.g, color.b);
+            colors.needsUpdate = true;
+        }
+        
+        if (window.backrestInstancedMesh) {
+            const colors = window.backrestInstancedMesh.geometry.attributes.color;
+            colors.setXYZ(instanceId, color.r, color.g, color.b);
+            colors.needsUpdate = true;
+        }
+        
+        // Update seat data
+        seatObj.userData.occupied = !!occupant;
+        seatObj.userData.occupant = occupant;
+        
+        // Update label
+        const sprites = seatsGroup.children.filter(c => c.isSprite && c.userData.seatNumber === seatNumber);
+        sprites.forEach(sprite => seatsGroup.remove(sprite));
+        
+        createSeatLabel(new THREE.Vector3(seatObj.position.x, seatObj.position.y, seatObj.position.z), {
+            number: seatNumber,
+            occupied: !!occupant,
+            occupant: occupant
+        });
     }
     
-    // Update instance colors for both seat and backrest
-    if (window.seatInstancedMesh) {
-        const colors = window.seatInstancedMesh.geometry.attributes.color;
-        colors.setXYZ(instanceId, color.r, color.g, color.b);
-        colors.needsUpdate = true;
+    // Update 2D fallback buttons if in 2D mode
+    const fallbackBtn = document.querySelector(`.fallback-seat[data-seat="${seatNumber}"]`);
+    if (fallbackBtn) {
+        if (occupant) {
+            fallbackBtn.classList.add('occupied');
+            fallbackBtn.disabled = true;
+            fallbackBtn.innerHTML = `S${seatNumber}<br><small>${occupant.substring(0, 8)}</small>`;
+        } else {
+            fallbackBtn.classList.remove('occupied');
+            fallbackBtn.disabled = false;
+            fallbackBtn.innerHTML = `S${seatNumber}`;
+        }
     }
-    
-    if (window.backrestInstancedMesh) {
-        const colors = window.backrestInstancedMesh.geometry.attributes.color;
-        colors.setXYZ(instanceId, color.r, color.g, color.b);
-        colors.needsUpdate = true;
-    }
-    
-    // Update seat data
-    seatObj.userData.occupied = !!occupant;
-    seatObj.userData.occupant = occupant;
-    
-    // Update label
-    const sprites = seatsGroup.children.filter(c => c.isSprite && c.userData.seatNumber === seatNumber);
-    sprites.forEach(sprite => seatsGroup.remove(sprite));
-    
-    createSeatLabel(new THREE.Vector3(seatObj.position.x, seatObj.position.y, seatObj.position.z), {
-        number: seatNumber,
-        occupied: !!occupant,
-        occupant: occupant
-    });
 }
 
 // ==================== WebSocket ====================
