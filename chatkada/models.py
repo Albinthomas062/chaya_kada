@@ -292,3 +292,43 @@ class TheatreSeat(models.Model):
         
     def __str__(self):
         return f"Seat {self.seat_number} in {self.room.name}"
+
+
+class AnalyticsEvent(models.Model):
+    """Track key user events for metrics and analytics"""
+    EVENT_TYPES = [
+        ('signup', 'User Signup'),
+        ('login', 'User Login'),
+        ('stranger_search_started', 'Stranger Search Started'),
+        ('stranger_match_made', 'Stranger Match Made'),
+        ('message_sent', 'Message Sent'),
+        ('bench_created', 'Bench Created'),
+        ('bench_joined', 'Bench Joined'),
+        ('theatre_created', 'Theatre Created'),
+        ('theatre_joined', 'Theatre Joined'),
+        ('item_bought', 'Item Bought'),
+        ('item_shared', 'Item Shared'),
+        ('challenge_claimed', 'Challenge Claimed'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='analytics_events', null=True, blank=True)
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPES, db_index=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    # Optional metadata stored as JSON-like fields
+    metadata_text = models.TextField(blank=True, null=True)  # For storing additional info
+    metadata_int = models.IntegerField(null=True, blank=True)  # For numeric values (coins, duration, etc.)
+    related_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='related_analytics_events')
+    related_room = models.ForeignKey(ChatRoom, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['event_type', 'timestamp']),
+            models.Index(fields=['user', 'timestamp']),
+        ]
+    
+    def __str__(self):
+        user_str = self.user.username if self.user else 'Anonymous'
+        return f"{user_str} - {self.get_event_type_display()} at {self.timestamp}"
+
