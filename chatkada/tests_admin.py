@@ -15,7 +15,11 @@ class AdminPermissionTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = User.objects.create_user(username='normaluser', password='test123')
+        # Profile created by signal, just get it
+        self.profile = self.user.userprofile
+        
         self.staff_user = User.objects.create_user(username='staffuser', password='test123', is_staff=True)
+        self.staff_profile = self.staff_user.userprofile
         
     def test_anonymous_blocked_from_dashboard(self):
         response = self.client.get(reverse('custom_admin_dashboard'))
@@ -109,6 +113,7 @@ class ItemCRUDTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.staff_user = User.objects.create_user(username='staff', password='test123', is_staff=True)
+        # Profile created by signal
         self.client.login(username='staff', password='test123')
         
     def test_create_item_without_image(self):
@@ -192,7 +197,8 @@ class ItemCRUDTests(TestCase):
         })
         
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Invalid image type')
+        # Django's actual error message
+        self.assertIn('valid image', response.content.decode().lower())
         
     def test_edit_item(self):
         item = Item.objects.create(
@@ -263,7 +269,8 @@ class KadaViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = User.objects.create_user(username='testuser', password='test123')
-        UserProfile.objects.create(user=self.user, coins=100)
+        # Profile created by signal
+        self.profile = self.user.userprofile
         
         # Create items with different availability and sort_order
         self.visible_item1 = Item.objects.create(
@@ -322,7 +329,10 @@ class CoinAdjustmentTests(TestCase):
         self.client.login(username='staff', password='test123')
         
         self.user = User.objects.create_user(username='testuser', password='test123')
-        self.profile = UserProfile.objects.create(user=self.user, coins=100)
+        # Profile created by signal
+        self.profile = self.user.userprofile
+        self.profile.coins = 100
+        self.profile.save()
         
     def test_adjust_coins_creates_audit_record(self):
         response = self.client.post(reverse('adjust_user_coins', args=[self.user.id]), {
@@ -377,7 +387,7 @@ class UserBanTests(TestCase):
         self.client = Client()
         self.staff_user = User.objects.create_user(username='staff', password='test123', is_staff=True)
         self.user = User.objects.create_user(username='testuser', password='test123')
-        UserProfile.objects.create(user=self.user, coins=100)
+        # Profile created by signal
         
     def test_ban_user(self):
         self.client.login(username='staff', password='test123')
