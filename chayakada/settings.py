@@ -121,12 +121,6 @@ CHANNEL_LAYERS = {
     },
 }
 
-# Static files storage - use simple storage for tests
-if 'test' in sys.argv:
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
-else:
-    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
@@ -148,6 +142,32 @@ else:
         }
     }
 
+
+
+# Cache configuration (Redis for production, LocMem for local development)
+REDIS_URL = config("REDIS_URL", default=None)
+
+if REDIS_URL:
+    # Use Redis cache when available (production)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+            'KEY_PREFIX': 'chayakada',
+            'TIMEOUT': 300,
+        }
+    }
+else:
+    # Fallback to LocMem cache for local development without Redis
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'chayakada-cache',
+        }
+    }
 
 
 # Password validation
@@ -191,11 +211,25 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# Cloudinary configuration (optional)
+# Cloudinary configuration (optional) and STORAGES (Django 4.2+)
 CLOUDINARY_URL = config("CLOUDINARY_URL", default=None)
 
-if CLOUDINARY_URL:
-    # Use Cloudinary for media storage if configured
+# Static files backend for tests vs production
+if 'test' in sys.argv:
+    STATICFILES_BACKEND = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+else:
+    STATICFILES_BACKEND = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# Check if cloudinary is installed
+try:
+    import cloudinary
+    import cloudinary_storage
+    CLOUDINARY_AVAILABLE = True
+except ImportError:
+    CLOUDINARY_AVAILABLE = False
+
+if CLOUDINARY_URL and CLOUDINARY_AVAILABLE:
+    # Use Cloudinary for media storage if configured and available
     INSTALLED_APPS.insert(0, 'cloudinary_storage')
     INSTALLED_APPS.insert(0, 'cloudinary')
     
@@ -203,19 +237,25 @@ if CLOUDINARY_URL:
         'CLOUDINARY_URL': CLOUDINARY_URL,
     }
     
-    # For Django 4.2+ (STORAGES setting)
+    # STORAGES setting (Django 4.2+)
     STORAGES = {
         "default": {
             "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": STATICFILES_BACKEND,
         },
     }
 else:
-    # Local media storage (default)
-    # In production without Cloudinary, serve via whitenoise or document nginx setup
-    pass
+    # Local media storage with whitenoise for static files
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": STATICFILES_BACKEND,
+        },
+    }
 
 # Session settings
 SESSION_COOKIE_AGE = 3600 * 12  # 12 hours

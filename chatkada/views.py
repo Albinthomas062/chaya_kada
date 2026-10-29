@@ -35,46 +35,54 @@ LOGIN_LOCKOUT_DURATION = 900  # 15 minutes in seconds
 
 
 def get_client_ip(request):
-    """Get client IP address from request"""
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR')
-    return ip
+    """Get client IP address from request (non-spoofable)"""
+    # Use REMOTE_ADDR which is set by the web server
+    # Daphne with --proxy-headers already sets REMOTE_ADDR from X-Forwarded-For
+    # behind trusted proxies
+    return request.META.get('REMOTE_ADDR', '0.0.0.0')
 
 
 def get_login_lockout_key(username, ip_address):
-    """Generate cache key for login lockout tracking"""
-    return f'user_login_attempts_{username}_{ip_address}'
+    """Generate cache keys for login lockout tracking"""
+    # Key both by IP and by username alone (to prevent distributed attacks)
+    return [
+        f'user_login_attempts_{username}_{ip_address}',
+        f'user_login_attempts_user_{username}'
+    ]
 
 
 def check_user_login_attempts(username, ip_address):
     """Check if user is locked out due to failed login attempts"""
-    key = get_login_lockout_key(username, ip_address)
-    attempts_data = cache.get(key)
+    keys = get_login_lockout_key(username, ip_address)
     
-    if attempts_data:
-        attempts, last_attempt = attempts_data
-        if attempts >= MAX_LOGIN_ATTEMPTS:
-            if time.time() - last_attempt < LOGIN_LOCKOUT_DURATION:
-                return False
+    # Check both IP-specific and username-only lockouts
+    for key in keys:
+        attempts_data = cache.get(key)
+        if attempts_data:
+            attempts, last_attempt = attempts_data
+            if attempts >= MAX_LOGIN_ATTEMPTS:
+                if time.time() - last_attempt < LOGIN_LOCKOUT_DURATION:
+                    return False
     return True
 
 
 def record_user_login_attempt(username, ip_address, success=False):
     """Record a user login attempt"""
-    key = get_login_lockout_key(username, ip_address)
+    keys = get_login_lockout_key(username, ip_address)
     
     if success:
-        cache.delete(key)
+        # Clear both keys on success
+        for key in keys:
+            cache.delete(key)
     else:
-        attempts_data = cache.get(key)
-        if attempts_data:
-            attempts, _ = attempts_data
-            cache.set(key, [attempts + 1, time.time()], LOGIN_LOCKOUT_DURATION)
-        else:
-            cache.set(key, [1, time.time()], LOGIN_LOCKOUT_DURATION)
+        # Increment both counters
+        for key in keys:
+            attempts_data = cache.get(key)
+            if attempts_data:
+                attempts, _ = attempts_data
+                cache.set(key, [attempts + 1, time.time()], LOGIN_LOCKOUT_DURATION)
+            else:
+                cache.set(key, [1, time.time()], LOGIN_LOCKOUT_DURATION)
 
 def home(request):
     return render(request, 'home.html')

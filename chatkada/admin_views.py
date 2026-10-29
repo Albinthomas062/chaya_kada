@@ -29,39 +29,56 @@ def is_staff_user(user):
     return user.is_staff or user.is_superuser
 
 
+def get_client_ip(request):
+    """Get client IP address from request (non-spoofable)"""
+    # Use REMOTE_ADDR which is set by the web server
+    # Daphne with --proxy-headers already sets REMOTE_ADDR from X-Forwarded-For
+    # behind trusted proxies
+    return request.META.get('REMOTE_ADDR', '0.0.0.0')
+
+
 def get_lockout_key(username, ip_address):
-    """Generate cache key for lockout tracking"""
-    return f'login_attempts_{username}_{ip_address}'
+    """Generate cache keys for lockout tracking"""
+    # Key both by IP and by username alone (to prevent distributed attacks)
+    return [
+        f'login_attempts_{username}_{ip_address}',
+        f'login_attempts_user_{username}'
+    ]
 
 
 def check_login_attempts(username, ip_address):
     """Check if user is locked out due to failed attempts"""
-    key = get_lockout_key(username, ip_address)
-    attempts_data = cache.get(key)
+    keys = get_lockout_key(username, ip_address)
     
-    if attempts_data:
-        attempts, last_attempt = attempts_data
-        if attempts >= MAX_ATTEMPTS:
-            # Check if lockout period has passed
-            if time.time() - last_attempt < LOCKOUT_DURATION:
-                return False, MAX_ATTEMPTS - attempts
+    # Check both IP-specific and username-only lockouts
+    for key in keys:
+        attempts_data = cache.get(key)
+        if attempts_data:
+            attempts, last_attempt = attempts_data
+            if attempts >= MAX_ATTEMPTS:
+                # Check if lockout period has passed
+                if time.time() - last_attempt < LOCKOUT_DURATION:
+                    return False, MAX_ATTEMPTS - attempts
     return True, 0
 
 
 def record_login_attempt(username, ip_address, success=False):
     """Record a login attempt"""
-    key = get_lockout_key(username, ip_address)
+    keys = get_lockout_key(username, ip_address)
     
     if success:
-        # Clear attempts on successful login
-        cache.delete(key)
+        # Clear both keys on success
+        for key in keys:
+            cache.delete(key)
     else:
-        attempts_data = cache.get(key)
-        if attempts_data:
-            attempts, _ = attempts_data
-            cache.set(key, [attempts + 1, time.time()], LOCKOUT_DURATION)
-        else:
-            cache.set(key, [1, time.time()], LOCKOUT_DURATION)
+        # Increment both counters
+        for key in keys:
+            attempts_data = cache.get(key)
+            if attempts_data:
+                attempts, _ = attempts_data
+                cache.set(key, [attempts + 1, time.time()], LOCKOUT_DURATION)
+            else:
+                cache.set(key, [1, time.time()], LOCKOUT_DURATION)
 
 
 def get_client_ip(request):
@@ -121,8 +138,14 @@ def custom_admin_login(request):
             return redirect('custom_admin_dashboard')
         else:
             record_login_attempt(username, ip_address, success=False)
-            attempts_data = cache.get(get_lockout_key(username, ip_address))
-            attempts_left = MAX_ATTEMPTS - (attempts_data[0] if attempts_data else 0)
+            
+            # Check remaining attempts from either key
+            keys = get_lockout_key(username, ip_address)
+            attempts_left = MAX_ATTEMPTS
+            for key in keys:
+                attempts_data = cache.get(key)
+                if attempts_data:
+                    attempts_left = min(attempts_left, MAX_ATTEMPTS - attempts_data[0])
             
             if attempts_left > 0:
                 messages.error(
