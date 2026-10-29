@@ -26,19 +26,19 @@
     </div>
 
     <div class="chat-messages" id="chat-messages">
-        {% for message in messages reversed %}
+        {% for message in messages %}
         <div class="message {% if message.user == user %}own{% endif %} {{ message.message_type }}">
             <div class="message-header">
                 <span class="username">{{ message.user|anonymous_username:room }}</span>
                 <span class="timestamp">{{ message.timestamp|date:"H:i" }}</span>
             </div>
             <div class="message-content">
-                {% if message.message_type == 'item_share' %}
+                {% if message.message_type == 'shared_item' %}
                 <div class="shared-item">
                     <span class="item-emoji">{{ message.shared_item.emoji }}</span>
                     <span class="item-text">{{ message.content }}</span>
                     <div class="item-details">
-                        <small>{{ message.shared_item.name }} x{{ message.shared_quantity }}</small>
+                        <small>{{ message.shared_item.name }}</small>
                     </div>
                 </div>
                 {% elif message.message_type == 'system' %}
@@ -95,7 +95,44 @@
 {% block extra_js %}
 <script>
     const roomId = '{{ room_id }}';
-    let lastMessageId = 0;
+    let chatSocket = null;
+    
+    // WebSocket connection
+    function connectWebSocket() {
+        const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = wsScheme + '://' + window.location.host + '/ws/chat/' + roomId + '/';
+        
+        chatSocket = new WebSocket(wsUrl);
+        
+        chatSocket.onopen = function(e) {
+            console.log('WebSocket connected');
+        };
+        
+        chatSocket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            if (data.type === 'message') {
+                appendMessage({
+                    user: data.username,
+                    content: data.message,
+                    message_type: data.message_type,
+                    timestamp: new Date(data.timestamp).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})
+                }, data.username === '{{ request.user.username }}');
+                scrollToBottom();
+            }
+        };
+        
+        chatSocket.onclose = function(e) {
+            console.error('WebSocket closed unexpectedly');
+            setTimeout(connectWebSocket, 3000);
+        };
+        
+        chatSocket.onerror = function(err) {
+            console.error('WebSocket error:', err);
+        };
+    }
+    
+    // Initialize WebSocket
+    connectWebSocket();
 
     // Send text message
     function sendMessage() {
@@ -103,65 +140,16 @@
         const message = messageInput.value.trim();
 
         if (!message) return;
-
-        fetch('/send-chat-message/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                room_id: roomId,
-                message_type: 'text',
-                content: message
-            })
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    messageInput.value = '';
-                    appendMessage(data.message, true);
-                    scrollToBottom();
-                } else {
-                    showNotification(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showNotification('Error sending message', 'error');
-            });
-    }
-
-    // Share item
-    function shareItem(itemId, quantity) {
-        fetch('/send-chat-message/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                room_id: roomId,
-                message_type: 'item_share',
-                item_id: itemId,
-                quantity: quantity
-            })
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    appendMessage(data.message, true);
-                    scrollToBottom();
-                    closeModal();
-                    showNotification('Item shared successfully!', 'success');
-                } else {
-                    showNotification(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showNotification('Error sharing item', 'error');
-            });
+        
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            chatSocket.send(JSON.stringify({
+                message: message,
+                message_type: 'text'
+            }));
+            messageInput.value = '';
+        } else {
+            showNotification('Connection lost. Reconnecting...', 'error');
+        }
     }
 
     // Append message to chat
@@ -171,13 +159,13 @@
         messageDiv.className = `message ${isOwn ? 'own' : ''} ${messageData.message_type}`;
 
         let messageContent = '';
-        if (messageData.message_type === 'item_share' && messageData.shared_item) {
+        if (messageData.message_type === 'shared_item' && messageData.shared_item) {
             messageContent = `
             <div class="shared-item">
                 <span class="item-emoji">${messageData.shared_item.emoji}</span>
                 <span class="item-text">${messageData.content}</span>
                 <div class="item-details">
-                    <small>${messageData.shared_item.name} x${messageData.shared_item.quantity}</small>
+                    <small>${messageData.shared_item.name}</small>
                 </div>
             </div>
         `;
@@ -229,110 +217,205 @@
         }
     }
 
-    // Share item button handlers
-    document.querySelectorAll('.share-btn').forEach(btn => {
-        btn.addEventListener('click', function () {
-            const itemDiv = this.closest('.shareable-item');
-            const itemId = itemDiv.getAttribute('data-item-id');
-            margin: 0 auto;
-            height: 80vh;
-            display: flex;
-            flex - direction: column;
-            background: var(--surface - color);
-            border - radius: var(--border - radius);
-            overflow: hidden;
-            border: 1px solid var(--border - color);
+    // Event listeners
+    document.getElementById('send-button').addEventListener('click', sendMessage);
+    document.getElementById('message-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
         }
+    });
 
-            .chat - header {
-                background: var(--primary - color);
+    // Utility function
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type} show`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    document.body.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    // Initial scroll
+    scrollToBottom();
+</script>
+
+<style>
+    .chat-room-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        height: 80vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface-color);
+        border-radius: var(--border-radius);
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+    }
+
+    .chat-header {
+        background: var(--primary-color);
         padding: 1rem;
         display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .room-info h2 {
+        margin: 0;
+        color: var(--text-color);
+    }
+
+    .room-meta {
         display: flex;
-        flex - direction: column;
+        gap: 1rem;
+        align-items: center;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+
+    .anonymous-badge {
+        background: rgba(255, 107, 107, 0.2);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .chat-controls {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .chat-messages {
+        flex: 1;
+        padding: 1rem;
+        overflow-y: auto;
+        background: var(--background-color);
+        display: flex;
+        flex-direction: column;
         gap: 1rem;
     }
 
     .message {
-        max- width: 70 %;
-    background: rgba(45, 45, 45, 0.8);
-    padding: 1rem;
-    border - radius: var(--border - radius);
-    border - left: 4px solid var(--secondary - color);
+        max-width: 70%;
+        background: rgba(45, 45, 45, 0.8);
+        padding: 1rem;
+        border-radius: var(--border-radius);
+        border-left: 4px solid var(--secondary-color);
     }
 
     .message.own {
-        align - self: flex - end;
-        background: var(--primary - color);
-        border - left: 4px solid var(--accent - color);
+        align-self: flex-end;
+        background: var(--primary-color);
+        border-left: 4px solid var(--accent-color);
     }
 
     .message.system {
-        align - self: center;
+        align-self: center;
         background: rgba(255, 255, 255, 0.1);
-        border - left: 4px solid #888;
-        font - style: italic;
-        text - align: center;
+        border-left: 4px solid #888;
+        font-style: italic;
+        text-align: center;
+        max-width: 100%;
     }
 
-    .message.item_share {
-        background: linear - gradient(135deg, var(--primary - color), var(--secondary - color));
-        border - left: 4px solid var(--accent - color);
+    .message.shared_item {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        border-left: 4px solid var(--accent-color);
     }
 
-    .shared - item {
+    .message-header {
         display: flex;
-        align - items: center;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .username {
+        font-weight: bold;
+        color: var(--accent-color);
+    }
+
+    .timestamp {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .shared-item {
+        display: flex;
+        align-items: center;
         gap: 0.5rem;
     }
 
-    .item - emoji {
-        font - size: 1.5rem;
+    .item-emoji {
+        font-size: 1.5rem;
     }
 
-    .item - details {
-        margin - left: auto;
+    .item-details {
+        margin-left: auto;
         color: rgba(255, 255, 255, 0.8);
     }
 
-    .chat - input - container {
+    .chat-input-container {
         padding: 1rem;
-        border - top: 1px solid var(--border - color);
+        border-top: 1px solid var(--border-color);
         background: rgba(45, 45, 45, 0.5);
     }
 
-    .chat - input {
+    .chat-input {
         display: flex;
         gap: 1rem;
     }
 
-    #message - input {
+    #message-input {
         flex: 1;
         padding: 0.75rem;
-        border: 1px solid var(--border - color);
-        border - radius: var(--border - radius);
-        background: var(--surface - color);
-        color: var(--text - color);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        background: var(--surface-color);
+        color: var(--text-color);
     }
 
     .modal {
         display: none;
         position: fixed;
-        z - index: 1000;
+        z-index: 1000;
         left: 0;
         top: 0;
-        width: 100 %;
-        height: 100 %;
-        background - color: rgba(0, 0, 0, 0.5);
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
     }
 
-    .modal - content {
-        background - color: var(--surface - color);
-        margin: 15 % auto;
+    .modal-content {
+        background-color: var(--surface-color);
+        margin: 15% auto;
         padding: 2rem;
-        border - radius: var(--border - radius);
-        width: 80 %;
-        max - width: 500px;
+        border-radius: var(--border-radius);
+        width: 80%;
+        max-width: 500px;
         position: relative;
     }
 
@@ -340,77 +423,78 @@
         position: absolute;
         top: 1rem;
         right: 1rem;
-        font - size: 2rem;
+        font-size: 2rem;
         cursor: pointer;
-        color: var(--text - secondary);
+        color: var(--text-secondary);
     }
 
-    .shareable - items {
+    .shareable-items {
         display: flex;
-        flex - direction: column;
+        flex-direction: column;
         gap: 1rem;
+        margin-top: 1rem;
     }
 
-    .shareable - item {
+    .shareable-item {
         display: flex;
-        justify - content: space - between;
-        align - items: center;
+        justify-content: space-between;
+        align-items: center;
         padding: 1rem;
         background: rgba(45, 45, 45, 0.5);
-        border - radius: 8px;
+        border-radius: 8px;
     }
 
-    .item - info {
+    .item-info {
         display: flex;
-        align - items: center;
+        align-items: center;
         gap: 0.5rem;
     }
 
-    .share - controls {
+    .share-controls {
         display: flex;
-        align - items: center;
+        align-items: center;
         gap: 0.5rem;
     }
 
-    .share - quantity {
+    .share-quantity {
         width: 60px;
         padding: 0.25rem;
-        border: 1px solid var(--border - color);
-        border - radius: 4px;
-        background: var(--background - color);
-        color: var(--text - color);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--background-color);
+        color: var(--text-color);
     }
 
-    .auto - expire - notice {
+    .auto-expire-notice {
         position: fixed;
         bottom: 20px;
         right: 20px;
         background: rgba(0, 0, 0, 0.8);
-        color: var(--accent - color);
+        color: var(--accent-color);
         padding: 0.5rem 1rem;
-        border - radius: 20px;
-        font - size: 0.8rem;
-        z - index: 100;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        z-index: 100;
     }
 
-    @media(max - width: 768px) {
-        .chat - room - container {
+    @media (max-width: 768px) {
+        .chat-room-container {
             height: 70vh;
         }
 
-        .chat - header {
-            flex - direction: column;
+        .chat-header {
+            flex-direction: column;
             gap: 1rem;
         }
 
         .message {
-            max - width: 90 %;
+            max-width: 90%;
         }
 
-        .modal - content {
-            width: 95 %;
-            margin: 10 % auto;
+        .modal-content {
+            width: 95%;
+            margin: 10% auto;
         }
     }
-</style >
-        {% endblock %}
+</style>
+{% endblock %}

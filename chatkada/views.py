@@ -1306,12 +1306,14 @@ def check_match_status(request):
 
 @login_required
 def get_online_status(request):
-    from .models import UserProfile
+    """Get online users count"""
     online_users = UserProfile.objects.filter(
         is_online=True,
-        last_activity__gte=timezone.now() - timezone.timedelta(minutes=5)
+        last_activity__gte=timezone.now() - timedelta(minutes=5)
     ).exclude(user=request.user).count()
-    in_queue = False  # Alternatively, check StrangerChatQueue for the user
+    
+    in_queue = StrangerChatQueue.objects.filter(user=request.user).exists()
+    
     return JsonResponse({
         "online_users": online_users,
         "in_queue": in_queue,
@@ -1422,22 +1424,26 @@ from django.http import HttpResponse
 @login_required
 def create_theatre_room(request):
     """Create a new theatre room"""
-    theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
-    channel_url = None
+    if request.method != 'POST':
+        # Don't allow GET to create rooms - show a form or redirect
+        return render(request, 'create_theatre.html')
     
-    if request.method == 'POST':
-        theatre_name = request.POST.get('theatre_name', theatre_name)
-        channel_url = request.POST.get('channel_url')
-        if not theatre_name:
-            theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
-        
+    theatre_name = request.POST.get('theatre_name', f"Theatre Room {timezone.now().strftime('%H:%M')}")
+    channel_url = request.POST.get('channel_url')
+    
+    if not theatre_name:
+        theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
+    
     chat_room = ChatRoom.objects.create(
         name=theatre_name,
         room_type='theatre',
         created_by=request.user,
-        max_users=50,  # Or any appropriate number
+        max_users=50,
         channel_url=channel_url
     )
+    chat_room.participants.add(request.user)
+    
+    messages.success(request, f'Theatre room "{theatre_name}" created!')
     return redirect('theatre_room_view', room_id=chat_room.room_id)
 
 @login_required

@@ -6,10 +6,12 @@ from .models import ChatRoom, ChatMessage, UserProfile, User, TheatreSeat
 import logging
 
 logger = logging.getLogger(__name__)
+
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'chat_{self.room_name}'
+        self.user = self.scope['user']
 
         # Join room group
         await self.channel_layer.group_add(
@@ -18,6 +20,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
         await self.accept()
+        
+        # Send initial connection confirmation
+        await self.send(text_data=json.dumps({
+            'type': 'connection',
+            'message': 'Connected to chat'
+        }))
 
     async def disconnect(self, close_code):
         # Leave room group
@@ -28,38 +36,65 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     # Receive message from WebSocket
     async def receive(self, text_data):
-        text_data_json = json.loads(text_data)
-        message = text_data_json['message']
-        username = self.scope['user'].username
-
-        # Save message to database (optional, depending on requirements)
-        # await self.save_message(message)
-
-        # Send message to room group
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'chat_message',
-                'message': message,
-                'username': username
-            }
-        )
+        try:
+            text_data_json = json.loads(text_data)
+            message = text_data_json.get('message', '').strip()
+            message_type = text_data_json.get('message_type', 'text')
+            
+            if not message or not self.user.is_authenticated:
+                return
+            
+            # Save message to database
+            saved_message = await self.save_message(message, message_type)
+            
+            if saved_message:
+                # Send message to room group
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'chat_message',
+                        'message': message,
+                        'username': self.user.username,
+                        'message_type': message_type,
+                        'timestamp': saved_message['timestamp']
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error in ChatConsumer.receive: {e}")
 
     # Receive message from room group
     async def chat_message(self, event):
         message = event['message']
         username = event['username']
+        message_type = event.get('message_type', 'text')
+        timestamp = event.get('timestamp', '')
 
         # Send message to WebSocket
         await self.send(text_data=json.dumps({
+            'type': 'message',
             'message': message,
-            'username': username
+            'username': username,
+            'message_type': message_type,
+            'timestamp': timestamp
         }))
 
     @database_sync_to_async
-    def save_message(self, message):
-        # Implement message saving logic here if needed
-        pass
+    def save_message(self, message, message_type='text'):
+        try:
+            room = ChatRoom.objects.get(room_id=self.room_name)
+            chat_message = ChatMessage.objects.create(
+                user=self.user,
+                room=room,
+                content=message,
+                message_type=message_type
+            )
+            return {
+                'id': chat_message.id,
+                'timestamp': chat_message.timestamp.isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error saving message: {e}")
+            return None
 
 class TheatreConsumer(AsyncWebsocketConsumer):
     async def connect(self):

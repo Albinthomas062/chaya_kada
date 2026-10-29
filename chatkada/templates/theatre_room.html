@@ -479,8 +479,17 @@
     let hls = null;
     
     // Fetch channels only if no channel was selected
-    fetch('https://iptv-org.github.io/iptv/index.m3u')
-        .then(res => res.text())
+    fetch('https://iptv-org.github.io/iptv/index.m3u', {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'default'
+    })
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.text();
+        })
         .then(text => {
             const lines = text.split('\n');
             const selectContainer = document.getElementById('channel-list')?.parentElement;
@@ -530,6 +539,10 @@
                         });
                     }
                 }
+            }
+            
+            if (channels.length === 0) {
+                throw new Error('No channels found in playlist');
             }
             
             // Function to render dropdown items
@@ -603,7 +616,17 @@
             console.error('Failed to load IPTV playlist', err);
             const selectContainer = document.getElementById('channel-list')?.parentElement;
             if (selectContainer) {
-                selectContainer.innerHTML = '<div class="text-red-500 text-sm text-center p-4">Failed to load channel list. Please refresh the page.</div>';
+                selectContainer.innerHTML = `
+                    <div class="bg-red-900/20 border border-red-500/50 rounded-xl p-6 text-center">
+                        <span class="material-symbols-outlined text-red-500 text-5xl mb-4 block">error</span>
+                        <h3 class="text-white font-bold text-lg mb-2">Unable to Load Channels</h3>
+                        <p class="text-white/70 text-sm mb-4">The IPTV channel source is currently unreachable. This could be due to network issues or the external service being unavailable.</p>
+                        <button onclick="location.reload()" class="bg-primary text-black px-4 py-2 rounded-lg font-bold hover:bg-primary/80 transition-colors">
+                            <span class="material-symbols-outlined text-[16px] align-middle">refresh</span> Try Again
+                        </button>
+                        <p class="text-white/50 text-xs mt-4">Or paste a direct M3U8 stream URL in your theatre settings</p>
+                    </div>
+                `;
             }
         });
 
