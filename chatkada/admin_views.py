@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.db.models import Q, Count, Sum
 from django.http import JsonResponse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_http_methods
 from datetime import timedelta
@@ -86,7 +87,11 @@ def custom_admin_login(request):
             
             # Handle 'next' parameter safely (prevent open redirects)
             next_url = request.POST.get('next') or request.GET.get('next', '')
-            if next_url and next_url.startswith('/'):
+            if next_url and url_has_allowed_host_and_scheme(
+                url=next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure()
+            ):
                 return redirect(next_url)
             return redirect('custom_admin_dashboard')
         else:
@@ -328,7 +333,7 @@ def view_user(request, user_id):
     # User stats
     total_purchases = Purchase.objects.filter(user=user).count()
     total_spent = Purchase.objects.filter(user=user).aggregate(Sum('total_price'))['total_price__sum'] or 0
-    challenges_completed = DailyChallenge.objects.filter(user=user, completed=True).count()
+    challenges_completed = DailyChallenge.objects.filter(user=user).count()  # Having a record means completed
     
     # Recent activity
     recent_purchases = Purchase.objects.filter(user=user).select_related('item').order_by('-timestamp')[:10]
@@ -457,7 +462,7 @@ def manage_challenges(request):
     
     # Stats
     today = timezone.now().date()
-    today_completed = DailyChallenge.objects.filter(completed_date=today, completed=True).count()
+    today_completed = DailyChallenge.objects.filter(completed_date=today).count()  # Having a record means completed
     today_total = DailyChallenge.objects.filter(completed_date=today).count()
     completion_rate = (today_completed / today_total * 100) if today_total > 0 else 0
     
@@ -557,7 +562,7 @@ def analytics_dashboard(request):
     spending_ratio = (coins_spent / coins_earned * 100) if coins_earned > 0 else 0
     
     # Top items
-    top_items = Purchase.objects.filter(purchased_at__gte=week_ago).values(
+    top_items = Purchase.objects.filter(timestamp__gte=week_ago).values(
         'item__name', 'item__emoji'
     ).annotate(purchase_count=Count('id'), total_revenue=Sum('total_price')).order_by('-purchase_count')[:5]
     

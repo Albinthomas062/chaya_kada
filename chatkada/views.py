@@ -1478,7 +1478,7 @@ def analytics_dashboard(request):
     spending_ratio = (coins_spent / coins_earned * 100) if coins_earned > 0 else 0
     
     # Top items
-    top_items = Purchase.objects.filter(purchased_at__gte=week_ago).values(
+    top_items = Purchase.objects.filter(timestamp__gte=week_ago).values(
         'item__name', 'item__emoji'
     ).annotate(purchase_count=Count('id'), total_revenue=Sum('total_price')).order_by('-purchase_count')[:5]
     

@@ -194,7 +194,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    z-index: 100;
+    z-index: 10000;  /* Above main navigation (9999) */
 }
 
 .theatre-ui > * {
@@ -213,7 +213,7 @@
     justify-content: space-between;
     align-items: center;
     backdrop-filter: blur(10px);
-    z-index: 101;
+    z-index: 10001;  /* Above theatre-ui */
 }
 
 .topbar-left {
@@ -749,6 +749,7 @@
 const ROOM_ID = '{{ room.room_id }}';
 const CURRENT_USER_ID = {{ user.id }};
 const CURRENT_USERNAME = '{{ user.username|escapejs }}';
+const SAVED_CHANNEL_URL = '{{ room.channel_url|escapejs }}';  // Load saved channel for late joiners
 const SEAT_DATA = [
     {% for seat in seats %}
     {
@@ -836,7 +837,7 @@ function initFallbackMode() {
     // Share video source
     fallbackVideo.src = theatreVideo.src;
     
-    hideLoading();
+    hideTheatreLoading();
     showToast('Using 2D fallback mode', 'info');
 }
 
@@ -1391,11 +1392,11 @@ function connectWebSocket() {
     theatreSocket.onmessage = (e) => {
         const data = JSON.parse(e.data);
         
-        if (data.type === 'chat_message') {
+        if (data.action === 'chat_message') {
             addChatMessage(data);
-        } else if (data.type === 'seat_update') {
+        } else if (data.action === 'seat_update') {
             updateSeatVisual(data.seat_number, data.username);
-        } else if (data.type === 'channel_sync') {
+        } else if (data.action === 'channel_sync') {
             if (data.username !== CURRENT_USERNAME) {
                 loadChannel(data.channel_url, false);
             }
@@ -1523,7 +1524,7 @@ function renderChannelList(channelList) {
     }
     
     container.innerHTML = channelList.map(ch => `
-        <div class="channel-item" onclick="selectChannel('${escapeHtml(ch.url).replace(/'/g, "\\'")}')">
+        <div class="channel-item" data-channel-url="${escapeHtml(ch.url).replace(/"/g, '&quot;')}">
             <div class="channel-info">
                 <h4>${escapeHtml(ch.name)}</h4>
                 <p>${escapeHtml(ch.category)}</p>
@@ -1531,6 +1532,14 @@ function renderChannelList(channelList) {
             <i class="fas fa-play-circle"></i>
         </div>
     `).join('');
+    
+    // Add event listeners to channel items
+    document.querySelectorAll('.channel-item').forEach(item => {
+        item.addEventListener('click', function() {
+            const url = this.getAttribute('data-channel-url');
+            selectChannel(url);
+        });
+    });
 }
 
 function showChannelModal() {
@@ -1677,7 +1686,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ==================== Initialization ====================
-function hideLoading() {
+function hideTheatreLoading() {
     const loading = document.getElementById('loading-screen');
     loading.classList.add('fade-out');
     setTimeout(() => {
@@ -1690,6 +1699,11 @@ function init() {
     if (!checkWebGLSupport() || checkReducedMotion()) {
         initFallbackMode();
         connectWebSocket();
+        
+        // Load saved channel for late joiners
+        if (SAVED_CHANNEL_URL && SAVED_CHANNEL_URL !== '') {
+            setTimeout(() => loadChannel(SAVED_CHANNEL_URL, false), 1000);
+        }
         return;
     }
     
@@ -1699,8 +1713,13 @@ function init() {
         introCameraAnimation();
         
         setTimeout(() => {
-            hideLoading();
+            hideTheatreLoading();
             showToast('Welcome to the theatre!', 'success');
+            
+            // Load saved channel for late joiners
+            if (SAVED_CHANNEL_URL && SAVED_CHANNEL_URL !== '') {
+                loadChannel(SAVED_CHANNEL_URL, false);
+            }
         }, 2000);
         
         connectWebSocket();
@@ -1708,6 +1727,11 @@ function init() {
         console.error('Failed to initialize 3D theatre:', error);
         initFallbackMode();
         connectWebSocket();
+        
+        // Load saved channel for late joiners
+        if (SAVED_CHANNEL_URL && SAVED_CHANNEL_URL !== '') {
+            setTimeout(() => loadChannel(SAVED_CHANNEL_URL, false), 1000);
+        }
     }
 }
 
