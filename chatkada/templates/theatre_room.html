@@ -4,7 +4,7 @@
 {% block title %}{{ room.name }} - 3D Theatre - Chaya Kada{% endblock %}
 
 {% block extra_head %}
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 {% endblock %}
 
 {% block content %}
@@ -95,7 +95,7 @@
             
             <div class="chat-input-wrapper">
                 <input type="text" id="chat-input" placeholder="Type a message..." maxlength="200">
-                <button id="send-btn" class="icon-btn-small">
+                <button id="send-btn" class="icon-btn-small" aria-label="Send message">
                     <i class="fas fa-paper-plane"></i>
                 </button>
             </div>
