@@ -6,6 +6,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.db.models import Q, Count, Sum
@@ -463,46 +464,98 @@ def get_coin_progress(request):
     })
 
 @login_required
-@csrf_exempt
+@require_POST
 def buy_item(request):
-    if request.method == 'POST':
+    """Purchase an item from the shop with secure validation"""
+    try:
         data = json.loads(request.body)
-        item_id = data.get('item_id')
-        quantity = data.get('quantity', 1)
-        
-        try:
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request format'
+        }, status=400)
+    
+    item_id = data.get('item_id')
+    quantity = data.get('quantity', 1)
+    
+    # Validate item_id
+    if not item_id:
+        return JsonResponse({
+            'success': False,
+            'message': 'Item ID is required'
+        }, status=400)
+    
+    # Validate quantity: must be integer between 1 and 10
+    try:
+        quantity = int(quantity)
+        if quantity < 1 or quantity > 10:
+            return JsonResponse({
+                'success': False,
+                'message': 'Quantity must be between 1 and 10'
+            }, status=400)
+    except (ValueError, TypeError):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid quantity'
+        }, status=400)
+    
+    try:
+        # Use atomic transaction with select_for_update to prevent race conditions
+        with transaction.atomic():
             item = Item.objects.get(id=item_id)
-            user_profile = request.user.userprofile
+            
+            # Only allow available items
+            if not item.available:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Item is not available for purchase'
+                }, status=400)
+            
+            # Lock user profile row to prevent concurrent purchases
+            user_profile = UserProfile.objects.select_for_update().get(user=request.user)
+            
             total_price = item.price * quantity
             
-            if user_profile.coins >= total_price:
-                user_profile.coins -= total_price
-                user_profile.save()
-                
-                Purchase.objects.create(
-                    user=request.user,
-                    item=item,
-                    quantity=quantity,
-                    total_price=total_price
-                )
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': f'Enjoyed {item.name}! {item.emoji}',
-                    'coins': user_profile.coins
-                })
-            else:
+            # Check sufficient coins
+            if user_profile.coins < total_price:
                 return JsonResponse({
                     'success': False,
                     'message': 'Not enough coins!'
                 })
-        except Item.DoesNotExist:
+            
+            # Deduct coins
+            user_profile.coins -= total_price
+            user_profile.save()
+            
+            # Record purchase
+            Purchase.objects.create(
+                user=request.user,
+                item=item,
+                quantity=quantity,
+                total_price=total_price
+            )
+            
             return JsonResponse({
-                'success': False,
-                'message': 'Item not found!'
+                'success': True,
+                'message': f'Enjoyed {item.name}! {item.emoji}',
+                'coins': user_profile.coins
             })
-    
-    return JsonResponse({'success': False, 'message': 'Invalid request'})
+            
+    except Item.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Item not found!'
+        }, status=404)
+    except UserProfile.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'User profile not found!'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': 'An error occurred'
+        }, status=500)
 
 # ========== NEW ADVANCED CHAT FEATURES ==========
 
