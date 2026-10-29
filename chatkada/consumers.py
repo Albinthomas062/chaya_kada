@@ -267,6 +267,13 @@ class TheatreConsumer(AsyncWebsocketConsumer):
             'channel_url': event['channel_url'],
             'username': event['username']
         }))
+    
+    async def reaction(self, event):
+        await self.send(text_data=json.dumps({
+            'action': 'reaction',
+            'emoji': event['emoji'],
+            'username': event['username']
+        }))
 
     @database_sync_to_async
     def get_user_avatar(self):
