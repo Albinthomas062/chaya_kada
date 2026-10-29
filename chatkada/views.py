@@ -2,10 +2,12 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.models import User
+from django.contrib.auth.forms import AuthenticationForm
 from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.db.models import Q, Count, Sum
 from django.db import transaction
 from django.urls import reverse
@@ -134,6 +136,7 @@ def login_view(request):
         return redirect('kada')
     
     if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '')
         ip_address = get_client_ip(request)
@@ -144,14 +147,17 @@ def login_view(request):
                 request,
                 f"Too many failed login attempts. Please try again in {LOGIN_LOCKOUT_DURATION // 60} minutes."
             )
-            return render(request, 'registration/login.html')
+            return render(request, 'registration/login.html', {'form': form})
         
-        # Check if user exists and is banned
+        # Check if user exists and is banned (only after password verified to avoid enumeration)
         try:
             user_obj = User.objects.get(username=username)
             if not user_obj.is_active:
-                messages.error(request, 'Your account has been banned. Please contact support.')
-                return render(request, 'registration/login.html')
+                # Verify password before showing ban message (prevent account enumeration)
+                if user_obj.check_password(password):
+                    messages.error(request, 'Your account has been banned. Please contact support.')
+                    return render(request, 'registration/login.html', {'form': form})
+                # If password wrong, fall through to generic error below
         except User.DoesNotExist:
             pass  # Will fail authentication below
         
@@ -162,13 +168,25 @@ def login_view(request):
             login(request, user)
             record_user_login_attempt(username, ip_address, success=True)
             messages.success(request, f'Welcome back, {username}!')
+            
+            # Validate next_url to prevent open redirect
             next_url = request.GET.get('next', 'kada')
-            return redirect(next_url)
+            if next_url and next_url != 'kada':
+                if url_has_allowed_host_and_scheme(
+                    url=next_url,
+                    allowed_hosts={request.get_host()},
+                    require_https=request.is_secure()
+                ):
+                    return redirect(next_url)
+            return redirect('kada')
         else:
             record_user_login_attempt(username, ip_address, success=False)
             messages.error(request, 'Invalid username or password.')
+            return render(request, 'registration/login.html', {'form': form})
+    else:
+        form = AuthenticationForm()
     
-    return render(request, 'registration/login.html')
+    return render(request, 'registration/login.html', {'form': form})
 
 @login_required
 def kada(request):
