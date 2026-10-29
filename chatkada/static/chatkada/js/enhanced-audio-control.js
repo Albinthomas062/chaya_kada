@@ -456,6 +456,11 @@ class EnhancedAudioController {
                 timestamp: Date.now()
             };
             localStorage.setItem('chayakada_music_state', JSON.stringify(musicState));
+            
+            // Trigger persistent audio manager save
+            if (window.persistentAudioManager) {
+                window.persistentAudioManager.saveCompleteState();
+            }
         } catch (e) {
             console.log('Failed to save music state:', e);
         }
@@ -1081,6 +1086,11 @@ class EnhancedAudioController {
             realisticMode: this.realisticMode
         };
         localStorage.setItem('chayakada-audio-settings', JSON.stringify(saveData));
+        
+        // Trigger persistent audio manager save
+        if (window.persistentAudioManager) {
+            window.persistentAudioManager.saveCompleteState();
+        }
     }
 
     loadSettings() {
