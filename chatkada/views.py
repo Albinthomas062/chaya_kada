@@ -1427,6 +1427,100 @@ def assign_challenge(request):
         form = AssignChallengeForm()
     return render(request, "custom_admin/assign_challenges.html", {"form": form})
 
+
+@staff_member_required
+def analytics_dashboard(request):
+    """Staff-only analytics dashboard with key metrics"""
+    from django.db.models import Count, Avg, Sum
+    from datetime import timedelta
+    from .models import AnalyticsEvent, Purchase, ChatRoom, CoinTransaction
+    
+    now = timezone.now()
+    today = now.date()
+    yesterday = today - timedelta(days=1)
+    week_ago = now - timedelta(days=7)
+    
+    # Daily Active Users
+    dau_today = User.objects.filter(userprofile__last_activity__gte=today).count()
+    dau_yesterday = User.objects.filter(
+        userprofile__last_activity__gte=yesterday,
+        userprofile__last_activity__lt=today
+    ).count()
+    dau_change = ((dau_today - dau_yesterday) / dau_yesterday * 100) if dau_yesterday > 0 else 0
+    
+    # Signups
+    signups_today = AnalyticsEvent.objects.filter(event_type='signup', timestamp__gte=today).count()
+    signups_7days = AnalyticsEvent.objects.filter(event_type='signup', timestamp__gte=week_ago).count()
+    
+    # Matching metrics
+    searches = AnalyticsEvent.objects.filter(event_type='stranger_search_started', timestamp__gte=week_ago).count()
+    matches = AnalyticsEvent.objects.filter(event_type='stranger_match_made', timestamp__gte=week_ago).count()
+    match_rate = (matches / searches * 100) if searches > 0 else 0
+    
+    # Messaging
+    total_messages = AnalyticsEvent.objects.filter(event_type='message_sent', timestamp__gte=week_ago).count()
+    active_chats = ChatRoom.objects.filter(is_active=True, created_at__gte=week_ago).count()
+    avg_messages_per_chat = (total_messages / active_chats) if active_chats > 0 else 0
+    
+    # Room usage
+    benches_created = AnalyticsEvent.objects.filter(event_type='bench_created', timestamp__gte=week_ago).count()
+    theatres_created = AnalyticsEvent.objects.filter(event_type='theatre_created', timestamp__gte=week_ago).count()
+    avg_participants = ChatRoom.objects.filter(is_active=True).annotate(
+        participant_count=Count('participants')
+    ).aggregate(Avg('participant_count'))['participant_count__avg'] or 0
+    
+    # Coin economy
+    coins_earned = CoinTransaction.objects.filter(timestamp__gte=week_ago, amount__gt=0).aggregate(Sum('amount'))['amount__sum'] or 0
+    coins_spent = abs(CoinTransaction.objects.filter(timestamp__gte=week_ago, amount__lt=0).aggregate(Sum('amount'))['amount__sum'] or 0)
+    coin_balance = coins_earned - coins_spent
+    spending_ratio = (coins_spent / coins_earned * 100) if coins_earned > 0 else 0
+    
+    # Top items
+    top_items = Purchase.objects.filter(purchased_at__gte=week_ago).values(
+        'item__name', 'item__emoji'
+    ).annotate(purchase_count=Count('id'), total_revenue=Sum('total_price')).order_by('-purchase_count')[:5]
+    
+    top_items_formatted = [
+        {
+            'name': item['item__name'],
+            'emoji': item['item__emoji'],
+            'purchase_count': item['purchase_count'],
+            'total_revenue': item['total_revenue']
+        }
+        for item in top_items
+    ]
+    
+    # Recent events
+    recent_events = AnalyticsEvent.objects.select_related('user').order_by('-timestamp')[:50]
+    
+    metrics = {
+        'daily_active_users': dau_today,
+        'dau_change': round(dau_change, 1),
+        'signups_today': signups_today,
+        'signups_7days': signups_7days,
+        'match_rate': round(match_rate, 1),
+        'total_matches': matches,
+        'median_match_time': 45,  # Placeholder
+        'avg_match_time': 52,  # Placeholder
+        'total_messages': total_messages,
+        'avg_messages_per_chat': round(avg_messages_per_chat, 1),
+        'active_chats': active_chats,
+        'benches_created': benches_created,
+        'theatres_created': theatres_created,
+        'avg_participants': round(avg_participants, 1),
+        'coins_earned': coins_earned,
+        'coins_spent': coins_spent,
+        'coin_balance': coin_balance,
+        'spending_ratio': round(spending_ratio, 1),
+        'top_items': top_items_formatted,
+    }
+    
+    return render(request, 'analytics_dashboard.html', {
+        'metrics': metrics,
+        'recent_events': recent_events
+    })
+
+
 # ——— Theatre Room Views ———
 from urllib.request import Request, urlopen
 from urllib.error import URLError
