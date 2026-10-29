@@ -1,12 +1,13 @@
 // Persistent Audio Manager - Seamless playback across navigation
-// Handles localStorage state, bfcache, back/forward buttons, and autoplay restrictions
+// Handles localStorage state, bfcache, back/forward buttons, currentTime resume
 
 class PersistentAudioManager {
     constructor() {
         this.stateKey = 'chayakada_persistent_audio_state';
         this.lastSaveTime = 0;
-        this.saveThrottleMs = 1000; // Save at most once per second
+        this.saveThrottleMs = 500; // Save at most twice per second
         this.autoplayBlocked = false;
+        this.timeupdateListeners = new Map();
         
         this.init();
     }
@@ -18,24 +19,63 @@ class PersistentAudioManager {
         // Handle bfcache (back/forward button)
         window.addEventListener('pageshow', (event) => {
             if (event.persisted) {
-                // Page was restored from bfcache
                 console.log('Page restored from bfcache - resuming audio');
                 this.restoreCompleteState();
             }
         });
         
-        // Save state before page unload
+        // Save state before page unload and on pagehide (for bfcache)
         window.addEventListener('beforeunload', () => {
-            this.saveCompleteState(true); // Force immediate save
+            this.saveCompleteState(true);
         });
         
-        // Periodic state saving while audio is playing
-        setInterval(() => {
-            this.saveCompleteState();
-        }, 2000); // Every 2 seconds
+        window.addEventListener('pagehide', () => {
+            this.saveCompleteState(true);
+        });
         
-        // Handle autoplay restrictions - resume on first user interaction
+        // Handle autoplay restrictions
         this.setupAutoplayFallback();
+        
+        // Set up timeupdate listeners once controller is ready
+        this.setupTimeupdateListeners();
+    }
+    
+    setupTimeupdateListeners() {
+        // Wait for audio controller to be ready
+        const checkController = () => {
+            const controller = window.audioController;
+            if (!controller || !controller.audioElements) {
+                setTimeout(checkController, 500);
+                return;
+            }
+            
+            // Add timeupdate listeners to all audio elements
+            const elements = controller.audioElements;
+            
+            if (elements.rain) {
+                this.addTimeupdateListener('rain', elements.rain);
+            }
+            if (elements.thunder) {
+                this.addTimeupdateListener('thunder', elements.thunder);
+            }
+            if (elements.crowd) {
+                this.addTimeupdateListener('crowd', elements.crowd);
+            }
+            if (elements.music) {
+                this.addTimeupdateListener('music', elements.music);
+            }
+        };
+        
+        checkController();
+    }
+    
+    addTimeupdateListener(name, audioElement) {
+        const listener = () => {
+            this.saveCompleteState();
+        };
+        
+        audioElement.addEventListener('timeupdate', listener);
+        this.timeupdateListeners.set(name, listener);
     }
     
     saveCompleteState(force = false) {
@@ -51,16 +91,33 @@ class PersistentAudioManager {
             if (!controller) return;
             
             const state = {
-                // Settings for all audio types
                 settings: controller.settings,
                 realisticMode: controller.realisticMode,
-                
-                // Music-specific state
                 currentSongIndex: controller.currentSongIndex,
-                musicCurrentTime: controller.audioElements.music?.currentTime || 0,
-                musicPaused: controller.audioElements.music?.paused ?? true,
                 
-                // Timestamps for validation
+                // Save currentTime for all tracks
+                tracks: {
+                    rain: {
+                        currentTime: controller.audioElements.rain?.currentTime || 0,
+                        paused: controller.audioElements.rain?.paused ?? true,
+                        duration: controller.audioElements.rain?.duration || 0
+                    },
+                    thunder: {
+                        currentTime: controller.audioElements.thunder?.currentTime || 0,
+                        paused: controller.audioElements.thunder?.paused ?? true
+                    },
+                    crowd: {
+                        currentTime: controller.audioElements.crowd?.currentTime || 0,
+                        paused: controller.audioElements.crowd?.paused ?? true,
+                        duration: controller.audioElements.crowd?.duration || 0
+                    },
+                    music: {
+                        currentTime: controller.audioElements.music?.currentTime || 0,
+                        paused: controller.audioElements.music?.paused ?? true,
+                        duration: controller.audioElements.music?.duration || 0
+                    }
+                },
+                
                 timestamp: now,
                 url: window.location.pathname
             };
@@ -75,7 +132,6 @@ class PersistentAudioManager {
         try {
             const savedState = localStorage.getItem(this.stateKey);
             if (!savedState) {
-                console.log('No saved audio state found');
                 return false;
             }
             
@@ -84,15 +140,12 @@ class PersistentAudioManager {
             // Validate state age (reject if older than 1 hour)
             const age = Date.now() - (state.timestamp || 0);
             if (age > 3600000) {
-                console.log('Saved audio state too old, ignoring');
                 localStorage.removeItem(this.stateKey);
                 return false;
             }
             
             const controller = window.audioController;
-            if (!controller) {
-                console.warn('Audio controller not ready yet, will retry');
-                // Retry after controller initializes
+            if (!controller || !controller.audioElements) {
                 setTimeout(() => this.restoreCompleteState(), 500);
                 return false;
             }
@@ -111,9 +164,11 @@ class PersistentAudioManager {
             }
             
             // Update UI controls first
-            controller.updateControls();
+            if (controller.updateControls) {
+                controller.updateControls();
+            }
             
-            // Restore audio playback states
+            // Restore audio playback with currentTime
             this.restoreAudioPlayback(controller, state);
             
             return true;
@@ -124,65 +179,94 @@ class PersistentAudioManager {
     }
     
     restoreAudioPlayback(controller, state) {
-        // Restore rain
-        if (state.settings?.rain?.enabled) {
-            controller.updateRain();
-        }
+        const tracks = state.tracks || {};
         
-        // Restore thunder
-        if (state.settings?.thunder?.enabled) {
-            controller.updateThunder();
+        // Restore rain
+        if (state.settings?.rain?.enabled && tracks.rain) {
+            const rain = controller.audioElements.rain;
+            if (rain) {
+                this.restoreTrack(rain, tracks.rain, () => {
+                    if (controller.updateRain) controller.updateRain();
+                });
+            }
         }
         
         // Restore crowd
-        if (state.settings?.crowd?.enabled) {
-            controller.updateCrowd();
+        if (state.settings?.crowd?.enabled && tracks.crowd) {
+            const crowd = controller.audioElements.crowd;
+            if (crowd) {
+                this.restoreTrack(crowd, tracks.crowd, () => {
+                    if (controller.updateCrowd) controller.updateCrowd();
+                });
+            }
         }
         
-        // Restore music with playback position
-        if (state.settings?.music?.enabled && !state.musicPaused) {
+        // Restore music
+        if (state.settings?.music?.enabled && tracks.music && !tracks.music.paused) {
             const music = controller.audioElements.music;
             if (music) {
-                const currentSong = controller.nostalgicSongs[controller.currentSongIndex % controller.nostalgicSongs.length];
-                const musicPath = `/static/chatkada/sounds/${currentSong.file}`;
-                
-                music.src = musicPath;
-                music.volume = (state.settings.music.volume || 25) / 100;
-                music.currentTime = state.musicCurrentTime || 0;
-                music.loop = false;
-                
-                // Try to play - may be blocked by browser autoplay policy
-                const playPromise = music.play();
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        console.log('Audio resumed successfully');
-                        this.autoplayBlocked = false;
-                        this.hideAutoplayWarning();
-                    }).catch((e) => {
-                        console.log('Autoplay blocked - waiting for user interaction');
-                        this.autoplayBlocked = true;
-                        this.showAutoplayWarning();
-                    });
-                }
-                
-                // Update now playing display
-                const currentSongElement = document.getElementById('current-song');
-                if (currentSongElement && currentSong) {
-                    currentSongElement.textContent = currentSong.name;
+                const currentSong = controller.nostalgicSongs?.[controller.currentSongIndex % controller.nostalgicSongs.length];
+                if (currentSong) {
+                    const musicPath = `/static/chatkada/sounds/${currentSong.file}`;
+                    music.src = musicPath;
+                    music.volume = (state.settings.music.volume || 25) / 100;
+                    music.loop = false;
+                    
+                    this.restoreTrack(music, tracks.music);
+                    
+                    // Update now playing display
+                    const currentSongElement = document.getElementById('current-song');
+                    if (currentSongElement) {
+                        currentSongElement.textContent = currentSong.name;
+                    }
                 }
             }
         }
         
         // Restore realistic mode effects
-        if (controller.realisticMode) {
-            setTimeout(() => {
-                controller.enableRealisticMode();
-            }, 100);
+        if (controller.realisticMode && controller.enableRealisticMode) {
+            setTimeout(() => controller.enableRealisticMode(), 100);
+        }
+    }
+    
+    restoreTrack(audioElement, trackState, onReady) {
+        if (!audioElement || !trackState) return;
+        
+        const resumePlayback = () => {
+            // Set currentTime after metadata is loaded
+            if (trackState.currentTime > 0 && isFinite(trackState.currentTime)) {
+                audioElement.currentTime = Math.min(trackState.currentTime, audioElement.duration || trackState.duration);
+            }
+            
+            // Play if it wasn't paused
+            if (!trackState.paused) {
+                const playPromise = audioElement.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('Audio track resumed successfully');
+                        this.autoplayBlocked = false;
+                        this.hideAutoplayWarning();
+                    }).catch((e) => {
+                        console.log('Autoplay blocked:', e.message);
+                        this.autoplayBlocked = true;
+                        this.showAutoplayWarning();
+                    });
+                }
+            }
+            
+            if (onReady) onReady();
+        };
+        
+        // Wait for loadedmetadata before setting currentTime
+        if (audioElement.readyState >= 1) {
+            // Metadata already loaded
+            resumePlayback();
+        } else {
+            audioElement.addEventListener('loadedmetadata', resumePlayback, { once: true });
         }
     }
     
     setupAutoplayFallback() {
-        // Single click anywhere resumes blocked audio
         const resumeAudio = () => {
             if (!this.autoplayBlocked) return;
             
@@ -190,21 +274,19 @@ class PersistentAudioManager {
             if (!controller) return;
             
             // Resume any audio that should be playing
-            if (controller.settings.music?.enabled) {
-                controller.audioElements.music?.play().then(() => {
-                    this.autoplayBlocked = false;
-                    this.hideAutoplayWarning();
-                }).catch(e => console.log('Resume failed:', e));
+            const elements = controller.audioElements;
+            if (elements.music && controller.settings.music?.enabled) {
+                elements.music.play().catch(e => {});
             }
-            if (controller.settings.rain?.enabled) {
-                controller.audioElements.rain?.play().catch(e => {});
+            if (elements.rain && controller.settings.rain?.enabled) {
+                elements.rain.play().catch(e => {});
             }
-            if (controller.settings.thunder?.enabled) {
-                // Thunder will play on next timer event
+            if (elements.crowd && controller.settings.crowd?.enabled) {
+                elements.crowd.play().catch(e => {});
             }
-            if (controller.settings.crowd?.enabled) {
-                controller.audioElements.crowd?.play().catch(e => {});
-            }
+            
+            this.autoplayBlocked = false;
+            this.hideAutoplayWarning();
         };
         
         document.addEventListener('click', resumeAudio, { once: true });
@@ -212,7 +294,6 @@ class PersistentAudioManager {
     }
     
     showAutoplayWarning() {
-        // Show a subtle indicator that audio is paused due to browser restrictions
         let warning = document.getElementById('autoplay-warning');
         if (!warning) {
             warning = document.createElement('div');

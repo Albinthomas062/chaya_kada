@@ -68,7 +68,17 @@ async def wait_for_theatre_ready(page):
     # Wait for canvas or fallback to be visible
     try:
         await page.wait_for_selector('#theatre-canvas, #fallback-theatre', timeout=15000, state='visible')
-        await page.wait_for_timeout(2000)  # Give it time to initialize
+        
+        # Wait for loader to disappear
+        try:
+            loader = page.locator('.loading-screen')
+            await loader.wait_for(state='hidden', timeout=10000)
+            print("  → Loader hidden")
+        except:
+            print("  → Loader not found or already hidden")
+        
+        # Additional wait for initialization
+        await page.wait_for_timeout(2000)
         print("  ✓ Theatre loaded")
         return True
     except Exception as e:

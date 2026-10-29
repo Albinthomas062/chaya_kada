@@ -152,6 +152,12 @@
     z-index: 9999;  /* Above navbar */
 }
 
+/* Hide site navbar in theatre view */
+.theatre-app ~ nav.navbar,
+body:has(.theatre-app) nav.navbar {
+    display: none !important;
+}
+
 .theatre-canvas {
     display: block;
     width: 100%;
@@ -1054,102 +1060,139 @@ function createScreen() {
 function createSeats() {
     seatsGroup = new THREE.Group();
     
-    // Seat geometry (low-poly, reused via instancing concept)
-    const seatGeometry = new THREE.BoxGeometry(0.8, 0.6, 0.8);
+    // Seat geometries
+    const seatGeometry = new THREE.BoxGeometry(0.8, 0.2, 0.8);
     const backrestGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.1);
     
-    const availableMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2d2d2d,
-        roughness: 0.7,
+    // Materials with warm visible colors
+    const freeMaterial = new THREE.MeshStandardMaterial({
+        color: 0x8B4513,  // Saddle brown - warm and visible
+        roughness: 0.6,
         metalness: 0.2
     });
     
-    const occupiedMaterial = new THREE.MeshStandardMaterial({
-        color: 0x8b0000,
-        roughness: 0.7,
-        metalness: 0.2
-    });
-    
-    const myMaterial = new THREE.MeshStandardMaterial({
-        color: 0xD4AF37,
-        roughness: 0.5,
-        metalness: 0.3,
-        emissive: 0xD4AF37,
-        emissiveIntensity: 0.2
-    });
-    
-    // Layout: 3 rows
-    // Row 1 (front): 4 seats
-    // Row 2 (middle): 3 seats
-    // Row 3 (back): 3 seats
-    
+    // Layout configuration
     const layouts = [
-        // Row 1: seats 1-4
         { row: 0, count: 4, startZ: 3, spacing: 2 },
-        // Row 2: seats 5-7
         { row: 1, count: 3, startZ: 5.5, spacing: 2.5 },
-        // Row 3: seats 8-10
         { row: 2, count: 3, startZ: 8, spacing: 3 }
     ];
     
-    let seatIndex = 0;
+    // Calculate total seat count
+    const totalSeats = Math.min(SEAT_DATA.length, 
+        layouts.reduce((sum, l) => sum + l.count, 0));
+    
+    // Create InstancedMesh for seat cushions
+    const seatInstancedMesh = new THREE.InstancedMesh(
+        seatGeometry,
+        freeMaterial,
+        totalSeats
+    );
+    seatInstancedMesh.castShadow = true;
+    seatInstancedMesh.receiveShadow = true;
+    
+    // Create InstancedMesh for backrests
+    const backrestInstancedMesh = new THREE.InstancedMesh(
+        backrestGeometry,
+        freeMaterial,
+        totalSeats
+    );
+    backrestInstancedMesh.castShadow = true;
+    backrestInstancedMesh.receiveShadow = true;
+    
+    // Set up per-instance colors
+    const seatColors = [];
+    const backrestColors = [];
+    
+    // Position instances and set colors
+    let instanceId = 0;
+    const matrix = new THREE.Matrix4();
+    const backrestMatrix = new THREE.Matrix4();
+    const color = new THREE.Color();
     
     layouts.forEach(layout => {
         const totalWidth = (layout.count - 1) * layout.spacing;
         const startX = -totalWidth / 2;
         
         for (let i = 0; i < layout.count; i++) {
-            if (seatIndex >= SEAT_DATA.length) break;
+            if (instanceId >= SEAT_DATA.length) break;
             
-            const seatData = SEAT_DATA[seatIndex];
-            const seatGroup = new THREE.Group();
-            
+            const seatData = SEAT_DATA[instanceId];
             const x = startX + i * layout.spacing;
             const z = layout.startZ;
             
-            // Choose material
-            let material = availableMaterial;
+            // Set seat cushion matrix
+            matrix.makeTranslation(x, 0.3, z);
+            seatInstancedMesh.setMatrixAt(instanceId, matrix);
+            
+            // Set backrest matrix (offset from seat)
+            backrestMatrix.makeTranslation(x, 0.7, z - 0.35);
+            backrestInstancedMesh.setMatrixAt(instanceId, backrestMatrix);
+            
+            // Set color based on occupancy
             if (seatData.occupant === CURRENT_USERNAME) {
-                material = myMaterial;
+                color.set(0xD4AF37);  // Gold for my seat
             } else if (seatData.occupied) {
-                material = occupiedMaterial;
+                color.set(0x696969);  // Gray for taken
+            } else {
+                color.set(0x8B4513);  // Brown for free
             }
             
-            // Seat cushion
-            const seat = new THREE.Mesh(seatGeometry, material);
-            seat.castShadow = true;
-            seat.receiveShadow = true;
-            seatGroup.add(seat);
+            seatColors.push(color.r, color.g, color.b);
+            backrestColors.push(color.r, color.g, color.b);
             
-            // Backrest
-            const backrest = new THREE.Mesh(backrestGeometry, material);
-            backrest.position.set(0, 0.4, -0.35);
-            backrest.castShadow = true;
-            backrest.receiveShadow = true;
-            seatGroup.add(backrest);
-            
-            seatGroup.position.set(x, 0.3, z);
-            seatGroup.userData = {
-                seatNumber: seatData.number,
-                occupied: seatData.occupied,
-                occupant: seatData.occupant,
-                material: material
+            // Store seat data for raycasting
+            const seatGroup = {
+                instanceId: instanceId,
+                position: { x, y: 0.3, z },
+                userData: {
+                    seatNumber: seatData.number,
+                    occupied: seatData.occupied,
+                    occupant: seatData.occupant
+                }
             };
-            
-            seatsGroup.add(seatGroup);
             seats3D.push(seatGroup);
             
-            // Label (sprite for better performance)
-            createSeatLabel(seatGroup, seatData);
+            // Create label
+            createSeatLabel(new THREE.Vector3(x, 0.3, z), seatData);
             
-            seatIndex++;
+            instanceId++;
         }
     });
     
+    // Apply per-instance colors
+    seatInstancedMesh.instanceMatrix.needsUpdate = true;
+    backrestInstancedMesh.instanceMatrix.needsUpdate = true;
+    
+    seatInstancedMesh.geometry.setAttribute(
+        'color',
+        new THREE.InstancedBufferAttribute(new Float32Array(seatColors), 3)
+    );
+    backrestInstancedMesh.geometry.setAttribute(
+        'color',
+        new THREE.InstancedBufferAttribute(new Float32Array(backrestColors), 3)
+    );
+    
+    // Enable vertex colors
+    seatInstancedMesh.material = seatInstancedMesh.material.clone();
+    seatInstancedMesh.material.vertexColors = true;
+    backrestInstancedMesh.material = backrestInstancedMesh.material.clone();
+    backrestInstancedMesh.material.vertexColors = true;
+    
+    // Store references for updating
+    seatInstancedMesh.userData.isInstancedSeat = true;
+    backrestInstancedMesh.userData.isInstancedBackrest = true;
+    
+    window.seatInstancedMesh = seatInstancedMesh;
+    window.backrestInstancedMesh = backrestInstancedMesh;
+    
+    seatsGroup.add(seatInstancedMesh);
+    seatsGroup.add(backrestInstancedMesh);
     scene.add(seatsGroup);
 }
 
-function createSeatLabel(seatGroup, seatData) {
+
+function createSeatLabel(position, seatData) {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     canvas.width = 128;
@@ -1174,9 +1217,10 @@ function createSeatLabel(seatGroup, seatData) {
     const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
     const sprite = new THREE.Sprite(spriteMaterial);
     sprite.scale.set(1, 0.5, 1);
-    sprite.position.set(0, 1.2, 0);
+    sprite.position.set(position.x, position.y + 0.9, position.z);
+    sprite.userData.seatNumber = seatData.number;
     
-    seatGroup.add(sprite);
+    seatsGroup.add(sprite);
 }
 
 // ==================== Animation Loop ====================
@@ -1205,13 +1249,6 @@ function animate() {
         );
         camera.lookAt(lookAtTarget);
     }
-    
-    // Subtle seat animations
-    seats3D.forEach((seat, i) => {
-        if (!checkReducedMotion() && !seat.userData.occupied) {
-            seat.rotation.y = Math.sin(Date.now() * 0.0005 + i) * 0.02;
-        }
-    });
     
     renderer.render(scene, camera);
 }
@@ -1259,13 +1296,14 @@ function onCanvasClick(event) {
     const intersects = raycaster.intersectObjects(seatsGroup.children, true);
     
     if (intersects.length > 0) {
-        let seatGroup = intersects[0].object;
-        while (seatGroup.parent && seatGroup.parent !== seatsGroup) {
-            seatGroup = seatGroup.parent;
-        }
+        const intersection = intersects[0];
         
-        if (seatGroup.userData && seatGroup.userData.seatNumber) {
-            takeSeat(seatGroup.userData.seatNumber);
+        // Check if it's an InstancedMesh
+        if (intersection.instanceId !== undefined) {
+            const seat = seats3D[intersection.instanceId];
+            if (seat && seat.userData && seat.userData.seatNumber) {
+                takeSeat(seat.userData.seatNumber);
+            }
         }
     }
 }
@@ -1357,51 +1395,40 @@ function updateSeatVisual(seatNumber, occupant) {
     const seatObj = seats3D.find(s => s.userData.seatNumber === seatNumber);
     if (!seatObj) return;
     
-    const myMaterial = new THREE.MeshStandardMaterial({
-        color: 0xD4AF37,
-        roughness: 0.5,
-        metalness: 0.3,
-        emissive: 0xD4AF37,
-        emissiveIntensity: 0.2
-    });
+    const instanceId = seatObj.instanceId;
+    const color = new THREE.Color();
     
-    const occupiedMaterial = new THREE.MeshStandardMaterial({
-        color: 0x8b0000,
-        roughness: 0.7,
-        metalness: 0.2
-    });
-    
-    const availableMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2d2d2d,
-        roughness: 0.7,
-        metalness: 0.2
-    });
-    
-    let newMaterial;
+    // Determine color based on occupancy
     if (occupant === CURRENT_USERNAME) {
-        newMaterial = myMaterial;
+        color.set(0xD4AF37);  // Gold for my seat
     } else if (occupant) {
-        newMaterial = occupiedMaterial;
+        color.set(0x696969);  // Gray for taken
     } else {
-        newMaterial = availableMaterial;
+        color.set(0x8B4513);  // Brown for free
     }
     
-    seatObj.children.forEach(child => {
-        if (child.isMesh) {
-            child.material = newMaterial;
-        }
-    });
+    // Update instance colors for both seat and backrest
+    if (window.seatInstancedMesh) {
+        const colors = window.seatInstancedMesh.geometry.attributes.color;
+        colors.setXYZ(instanceId, color.r, color.g, color.b);
+        colors.needsUpdate = true;
+    }
     
+    if (window.backrestInstancedMesh) {
+        const colors = window.backrestInstancedMesh.geometry.attributes.color;
+        colors.setXYZ(instanceId, color.r, color.g, color.b);
+        colors.needsUpdate = true;
+    }
+    
+    // Update seat data
     seatObj.userData.occupied = !!occupant;
     seatObj.userData.occupant = occupant;
     
     // Update label
-    const sprite = seatObj.children.find(c => c.isSprite);
-    if (sprite) {
-        seatObj.remove(sprite);
-    }
+    const sprites = seatsGroup.children.filter(c => c.isSprite && c.userData.seatNumber === seatNumber);
+    sprites.forEach(sprite => seatsGroup.remove(sprite));
     
-    createSeatLabel(seatObj, {
+    createSeatLabel(new THREE.Vector3(seatObj.position.x, seatObj.position.y, seatObj.position.z), {
         number: seatNumber,
         occupied: !!occupant,
         occupant: occupant
@@ -1558,8 +1585,7 @@ function showChatBubble(username, message) {
     
     // Position above seat (sprites auto-billboard toward camera)
     sprite.scale.set(2.5, 1.25, 1);
-    sprite.position.copy(userSeat.position);
-    sprite.position.y += 1.5;  // Float well above seat and labels
+    sprite.position.set(userSeat.position.x, userSeat.position.y + 1.5, userSeat.position.z);
     
     scene.add(sprite);
     
@@ -1643,8 +1669,7 @@ function showReactionSprite(username, emoji) {
     sprite.renderOrder = 999;  // High render order to draw on top
     
     sprite.scale.set(0.5, 0.5, 1);
-    sprite.position.copy(userSeat.position);
-    sprite.position.y += 1.0;  // Start higher to avoid labels
+    sprite.position.set(userSeat.position.x, userSeat.position.y + 1.0, userSeat.position.z);
     
     scene.add(sprite);
     

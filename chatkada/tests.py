@@ -11,7 +11,8 @@ class LoginViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = User.objects.create_user(username='testuser', password='correct123')
-        UserProfile.objects.create(user=self.user, coins=100)
+        # UserProfile is created by post_save signal, just get it
+        self.profile = self.user.userprofile
         cache.clear()
     
     def test_login_page_has_form_fields(self):
