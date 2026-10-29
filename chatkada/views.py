@@ -447,10 +447,10 @@ def find_chat(request):
             # Create private bench
             new_room = ChatRoom.objects.create(
                 name=f"Private Bench: {bench_name}",
-                bench_name=bench_name,
+                bench_name=bench_name,  # Set bench_name field
                 room_type='private_bench',
                 created_by=request.user,
-                max_users=4  # Allow up to 4 people in private benches
+                max_users=4
             )
             new_room.participants.add(request.user)
             
@@ -499,18 +499,28 @@ def find_chat(request):
 def create_private_bench(request):
     """Create a new private bench"""
     if request.method == 'POST':
-        bench_name = request.POST.get('bench_name')
-        if bench_name:
-            new_room = ChatRoom.objects.create(
-                name=bench_name,
-                room_type='private_bench',
-                created_by=request.user,
-                max_users=4  # Allow up to 4 people in private benches
-            )
-            new_room.participants.add(request.user)
-            messages.success(request, f'Private bench "{bench_name}" created successfully!')
-            return redirect('chat_room', room_id=new_room.room_id)
+        bench_name = request.POST.get('bench_name', '').strip()
+        
+        if not bench_name:
+            messages.error(request, 'Please enter a bench name.')
+            return redirect('find_chat')
+        
+        if len(bench_name) > 50:
+            messages.error(request, 'Bench name must be 50 characters or less.')
+            return redirect('find_chat')
+        
+        new_room = ChatRoom.objects.create(
+            name=f"Private Bench: {bench_name}",
+            bench_name=bench_name,  # Set bench_name field
+            room_type='private_bench',
+            created_by=request.user,
+            max_users=4
+        )
+        new_room.participants.add(request.user)
+        messages.success(request, f'Private bench "{bench_name}" created successfully!')
+        return redirect('chat_room', room_id=new_room.room_id)
     
+    messages.error(request, 'Invalid request.')
     return redirect('find_chat')
 
 @login_required
