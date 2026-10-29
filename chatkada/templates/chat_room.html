@@ -16,6 +16,11 @@
             </span>
         </div>
         <div class="chat-controls">
+            {% if invite_link and is_room_creator %}
+            <button id="show-invite-btn" class="btn btn-sm btn-secondary">
+                <i class="fas fa-link"></i> Invite Link
+            </button>
+            {% endif %}
             <button id="share-item-btn" class="btn btn-sm btn-secondary">
                 <i class="fas fa-share"></i> Share Snacks
             </button>
@@ -60,6 +65,23 @@
         </div>
     </div>
 </div>
+
+<!-- Invite Link Modal -->
+{% if invite_link %}
+<div id="invite-modal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeInviteModal()">&times;</span>
+        <h3>Invite Friends to {{ room.bench_name }}</h3>
+        <div class="invite-link-container">
+            <label>Share this link:</label>
+            <input type="text" id="invite-link-input" value="{{ invite_link }}" readonly>
+            <button onclick="copyInviteLink()" class="btn btn-primary">
+                <i class="fas fa-copy"></i> Copy Link
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- Share Item Modal -->
 <div id="share-modal" class="modal">
@@ -156,29 +178,45 @@
     function appendMessage(messageData, isOwn = false) {
         const messagesContainer = document.getElementById('chat-messages');
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${isOwn ? 'own' : ''} ${messageData.message_type}`;
+        
+        // Escape HTML to prevent XSS
+        const escapeHtml = (unsafe) => {
+            if (!unsafe) return '';
+            const div = document.createElement('div');
+            div.textContent = unsafe;
+            return div.innerHTML;
+        };
+        
+        const username = escapeHtml(messageData.user);
+        const timestamp = escapeHtml(messageData.timestamp);
+        const messageType = messageData.message_type || 'text'; // Server controls this
+        
+        messageDiv.className = `message ${isOwn ? 'own' : ''} ${escapeHtml(messageType)}`;
 
         let messageContent = '';
         if (messageData.message_type === 'shared_item' && messageData.shared_item) {
+            const itemEmoji = escapeHtml(messageData.shared_item.emoji);
+            const content = escapeHtml(messageData.content);
+            const itemName = escapeHtml(messageData.shared_item.name);
             messageContent = `
             <div class="shared-item">
-                <span class="item-emoji">${messageData.shared_item.emoji}</span>
-                <span class="item-text">${messageData.content}</span>
+                <span class="item-emoji">${itemEmoji}</span>
+                <span class="item-text">${content}</span>
                 <div class="item-details">
-                    <small>${messageData.shared_item.name}</small>
+                    <small>${itemName}</small>
                 </div>
             </div>
         `;
         } else if (messageData.message_type === 'system') {
-            messageContent = `<em>${messageData.content}</em>`;
+            messageContent = `<em>${escapeHtml(messageData.content)}</em>`;
         } else {
-            messageContent = messageData.content;
+            messageContent = escapeHtml(messageData.content);
         }
 
         messageDiv.innerHTML = `
         <div class="message-header">
-            <span class="username">${messageData.user}</span>
-            <span class="timestamp">${messageData.timestamp}</span>
+            <span class="username">${username}</span>
+            <span class="timestamp">${timestamp}</span>
         </div>
         <div class="message-content">
             ${messageContent}
@@ -224,6 +262,25 @@
             sendMessage();
         }
     });
+    
+    // Invite modal
+    const inviteBtn = document.getElementById('show-invite-btn');
+    if (inviteBtn) {
+        inviteBtn.addEventListener('click', function() {
+            document.getElementById('invite-modal').style.display = 'block';
+        });
+    }
+    
+    function closeInviteModal() {
+        document.getElementById('invite-modal').style.display = 'none';
+    }
+    
+    function copyInviteLink() {
+        const input = document.getElementById('invite-link-input');
+        input.select();
+        document.execCommand('copy');
+        showNotification('Invite link copied!', 'success');
+    }
 
     // Utility function
     function getCookie(name) {

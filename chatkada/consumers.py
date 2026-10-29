@@ -18,6 +18,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
+        # Verify room membership - room_name is the room_id UUID
+        try:
+            room = await database_sync_to_async(ChatRoom.objects.get)(room_id=self.room_name)
+            is_participant = await database_sync_to_async(
+                lambda: room.participants.filter(id=self.user.id).exists()
+            )()
+            
+            if not is_participant:
+                # User is not a participant - reject connection
+                await self.close()
+                return
+                
+        except ChatRoom.DoesNotExist:
+            await self.close()
+            return
+
         # Join room group
         await self.channel_layer.group_add(
             self.room_group_name,
@@ -44,10 +60,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             text_data_json = json.loads(text_data)
             message = text_data_json.get('message', '').strip()
-            message_type = text_data_json.get('message_type', 'text')
+            # Server controls message_type - don't trust client
+            client_message_type = text_data_json.get('message_type', 'text')
             
             if not message or not self.user.is_authenticated:
                 return
+            
+            # Validate and sanitize message_type on server
+            if client_message_type == 'shared_item':
+                # TODO: Validate user has the item
+                message_type = 'shared_item'
+            elif client_message_type == 'system':
+                # Clients cannot send system messages
+                message_type = 'text'
+            else:
+                message_type = 'text'
             
             # Save message to database
             saved_message = await self.save_message(message, message_type)
@@ -60,7 +87,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         'type': 'chat_message',
                         'message': message,
                         'username': self.user.username,
-                        'message_type': message_type,
+                        'message_type': message_type,  # Server-controlled
                         'timestamp': saved_message['timestamp']
                     }
                 )
@@ -109,6 +136,27 @@ class TheatreConsumer(AsyncWebsocketConsumer):
         
         # Reject anonymous users
         if not self.user.is_authenticated:
+            await self.close()
+            return
+
+        # Verify room membership/access
+        try:
+            room = await database_sync_to_async(ChatRoom.objects.get)(
+                room_id=self.room_name, 
+                room_type='theatre'
+            )
+            
+            # For theatre rooms: verify user is participant (added by the view)
+            is_participant = await database_sync_to_async(
+                lambda: room.participants.filter(id=self.user.id).exists()
+            )()
+            
+            if not is_participant:
+                # Not a participant - reject connection
+                await self.close()
+                return
+                
+        except ChatRoom.DoesNotExist:
             await self.close()
             return
 

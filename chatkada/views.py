@@ -457,6 +457,12 @@ def find_chat(request):
             messages.success(request, f'Private bench "{bench_name}" created successfully!')
             return redirect('chat_room', room_id=new_room.room_id)
     
+    # Get online users count (excluding current user)
+    online_users_count = UserProfile.objects.filter(
+        is_online=True,
+        last_activity__gte=timezone.now() - timedelta(minutes=5)
+    ).exclude(user=request.user).count()
+    
     # Get user's active benches (private benches)
     user_benches = ChatRoom.objects.filter(
         created_by=request.user,
@@ -485,7 +491,8 @@ def find_chat(request):
     
     return render(request, 'find_chat.html', {
         'user_benches': user_benches,
-        'user_stranger_chats': all_user_stranger_chats
+        'user_stranger_chats': all_user_stranger_chats,
+        'online_users_count': online_users_count,  # Add online count
     })
 
 @login_required
@@ -548,19 +555,11 @@ def chat_room(request, room_id):
     # Get invite link if user is room creator and it's a private bench
     invite_link = None
     if room.created_by == request.user and room.room_type == 'private_bench':
+        # Get existing active invite (don't create on every page load)
         active_invite = BenchInvite.objects.filter(
             room=room,
             status='active'
         ).first()
-        
-        # Create an invite if none exists
-        if not active_invite or not active_invite.is_valid():
-            active_invite = BenchInvite.objects.create(
-                room=room,
-                created_by=request.user,
-                max_uses=10,
-                expires_at=timezone.now() + timedelta(days=7)
-            )
         
         if active_invite and active_invite.is_valid():
             invite_link = request.build_absolute_uri(
@@ -1116,16 +1115,17 @@ def handle_stranger_chat_request(request):
                 joined_at__lt=timezone.now() - timedelta(minutes=10)
             ).delete()
             
-            # First check if user was already matched into a room
+            # Check if user has an ACTIVE, RECENT match (within last 2 minutes)
+            # This prevents immediate reconnection but allows new searches after a brief period
             existing_match = ChatRoom.objects.filter(
                 participants=request.user,
                 room_type='stranger',
                 is_active=True,
-                created_at__gte=timezone.now() - timedelta(minutes=10)
+                created_at__gte=timezone.now() - timedelta(minutes=2)  # Only within 2 minutes
             ).first()
             
             if existing_match:
-                # User was matched! Remove from queue and redirect
+                # User was matched recently! Remove from queue and redirect
                 StrangerChatQueue.objects.filter(user=request.user).delete()
                 profile.looking_for_stranger_chat = False
                 profile.save()
@@ -1302,45 +1302,8 @@ def cancel_stranger_search(request):
     return redirect('find_chat')
 
 @login_required
-def check_match_status(request):
-    """API endpoint to check if a match has been found"""
-    try:
-        queue_entry = StrangerChatQueue.objects.get(user=request.user)
-        
-        # Check if user has been matched (removed from queue but has active chat)
-        active_chat = ChatRoom.objects.filter(
-            participants=request.user,
-            room_type='stranger',
-            is_active=True,
-            created_at__gte=queue_entry.joined_at
-        ).first()
-        
-        if active_chat:
-            return JsonResponse({
-                'status': 'matched',
-                'room_id': str(active_chat.room_id),
-                'message': 'Match found! Redirecting to chat...'
-            })
-        
-        # Still waiting
-        wait_time = (timezone.now() - queue_entry.joined_at).total_seconds()
-        online_count = find_available_online_users(request.user).count()
-        
-        if wait_time > 300:  # 5 minutes timeout
-            return handle_timeout(request, queue_entry)
-        
-        return JsonResponse({
-            'status': 'waiting',
-            'wait_time': int(wait_time),
-            'online_count': online_count,
-            'message': f'Searching... {online_count} users online'
-        })
-        
-    except StrangerChatQueue.DoesNotExist:
-        return JsonResponse({
-            'status': 'not_searching',
-            'message': 'Not currently searching'
-        })
+
+# check_match_status removed - was unused and returning incorrect 'not_searching' status
 
 @login_required
 def get_online_status(request):
@@ -1489,6 +1452,10 @@ def theatre_room_view(request, room_id):
     """View for the theatre UI"""
     room = get_object_or_404(ChatRoom, room_id=room_id, room_type='theatre')
     
+    # Add viewer to participants if not already (Issue 9 fix)
+    if not room.participants.filter(id=request.user.id).exists():
+        room.participants.add(request.user)
+    
     # Initialize 10 seats if they don't exist
     from .models import TheatreSeat
     for i in range(1, 11):
@@ -1506,28 +1473,33 @@ def theatre_room_view(request, room_id):
 @login_required
 @csrf_exempt
 def proxy_m3u(request):
-    """Proxy view to fetch M3U playlists and TS segments, bypassing CORS."""
+    """Proxy view to fetch M3U playlists ONLY - streams load directly in browser."""
     url = request.GET.get('url')
     if not url:
         return HttpResponse("Missing URL", status=400)
     
-    # Security: Allowlist of domains for IPTV sources
+    # Security: Allowlist exact hostnames for playlist sources only
     from urllib.parse import urlparse
     parsed_url = urlparse(url)
-    allowed_domains = [
-        'iptv-org.github.io',
-        # Add other trusted IPTV sources here
-    ]
     
-    if not any(parsed_url.netloc.endswith(domain) for domain in allowed_domains):
-        return HttpResponse("URL not allowed", status=403)
+    # Only allow playlist fetches from trusted sources
+    # Streams will load directly in browser (no proxy)
+    allowed_hosts = {
+        'iptv-org.github.io',
+        # Add other trusted playlist sources here
+    }
+    
+    if parsed_url.netloc not in allowed_hosts:
+        return HttpResponse("URL not allowed - only playlist sources permitted", status=403)
+    
+    # Only allow m3u/m3u8 playlist files, not streams
+    if not (url.endswith('.m3u') or url.endswith('.m3u8') or '/index.m3u' in url):
+        return HttpResponse("Only playlist files allowed", status=403)
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': '*/*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive',
-        'Referer': url,
     }
 
     try:
@@ -1535,53 +1507,48 @@ def proxy_m3u(request):
             url,
             headers=headers,
             timeout=15,
-            verify=True,  # Enable SSL verification for security
-            stream=True,
-            allow_redirects=True,
+            verify=True,  # SSL verification enabled
+            stream=False,  # Don't stream - only playlists
+            allow_redirects=False,  # Don't follow redirects to prevent bypass
         )
         resp.raise_for_status()
+        
+        # Only handle redirects to allowed hosts
+        if resp.status_code in (301, 302, 303, 307, 308):
+            redirect_url = resp.headers.get('Location', '')
+            redirect_parsed = urlparse(redirect_url)
+            if redirect_parsed.netloc not in allowed_hosts:
+                return HttpResponse("Redirect to non-allowlisted host blocked", status=403)
+            # Follow the redirect manually
+            return proxy_m3u(request)  # Recursive call with new URL
 
-        content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
-
-        # For M3U/M3U8 playlists — read fully and rewrite relative URLs to go through the proxy
-        if 'm3u' in content_type or url.endswith('.m3u8') or url.endswith('.m3u'):
-            content = resp.content.decode('utf-8', errors='replace')
-            # Rewrite relative TS segment / sub-playlist URLs so they also pass through proxy
-            base_url = url.rsplit('/', 1)[0] + '/'
-            rewritten_lines = []
-            for line in content.splitlines():
-                stripped = line.strip()
-                if stripped and not stripped.startswith('#'):
-                    if stripped.startswith('http://') or stripped.startswith('https://'):
-                        # Already absolute — proxy it
-                        rewritten_lines.append('/proxy-m3u/?url=' + req_lib.utils.quote(stripped, safe=''))
-                    else:
-                        # Relative URL — make absolute then proxy it
-                        abs_url = base_url + stripped
-                        rewritten_lines.append('/proxy-m3u/?url=' + req_lib.utils.quote(abs_url, safe=''))
+        content = resp.content.decode('utf-8', errors='replace')
+        
+        # Parse playlist and return stream URLs directly (no proxy)
+        # Client player will load streams directly
+        rewritten_lines = []
+        base_url = url.rsplit('/', 1)[0] + '/'
+        
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                # Stream URL - return as-is (no proxy)
+                if stripped.startswith('http://') or stripped.startswith('https://'):
+                    rewritten_lines.append(stripped)
                 else:
-                    rewritten_lines.append(line)
-            rewritten = '\n'.join(rewritten_lines)
-            response = HttpResponse(rewritten, content_type='application/vnd.apple.mpegurl; charset=utf-8')
-        else:
-            # For TS segments and other binary content — stream it
-            def stream_content():
-                for chunk in resp.iter_content(chunk_size=8192):
-                    yield chunk
-            response = StreamingHttpResponse(stream_content(), content_type=content_type)
-
+                    # Relative URL - make absolute
+                    rewritten_lines.append(base_url + stripped)
+            else:
+                rewritten_lines.append(line)
+        
+        rewritten = '\n'.join(rewritten_lines)
+        response = HttpResponse(rewritten, content_type='application/vnd.apple.mpegurl; charset=utf-8')
         response['Access-Control-Allow-Origin'] = '*'
         response['Access-Control-Allow-Headers'] = '*'
         response['Cache-Control'] = 'no-cache'
         return response
 
-    except req_lib.exceptions.SSLError as e:
-        return HttpResponse(f"SSL Error: {str(e)}", status=502)
-    except req_lib.exceptions.ConnectionError as e:
-        return HttpResponse(f"Connection Error: {str(e)}", status=502)
-    except req_lib.exceptions.Timeout:
-        return HttpResponse("Stream timed out", status=504)
     except req_lib.exceptions.HTTPError as e:
-        return HttpResponse(f"Upstream HTTP error: {str(e)}", status=502)
+        return HttpResponse(f"Upstream error: {e}", status=502)
     except Exception as e:
-        return HttpResponse(f"Proxy error: {str(e)}", status=500)
+        return HttpResponse(f"Error: {str(e)}", status=500)

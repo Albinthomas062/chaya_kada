@@ -575,13 +575,24 @@
                             const item = document.createElement('div');
                             item.className = 'p-4 hover:bg-primary/20 cursor-pointer text-sm border-b border-white/10 last:border-0 transition-colors';
                             
+                            // Escape channel data to prevent XSS
+                            const escapeHtml = (unsafe) => {
+                                if (!unsafe) return '';
+                                const div = document.createElement('div');
+                                div.textContent = unsafe;
+                                return div.innerHTML;
+                            };
+                            const safeName = escapeHtml(ch.name);
+                            const safeCategory = escapeHtml(ch.category);
+                            const safeLanguage = escapeHtml(ch.language);
+                            
                             // Re-adding category and language tags for a premium look
                             item.innerHTML = `
                                 <div class="flex justify-between items-center w-full">
-                                    <span class="font-bold">${ch.name}</span>
+                                    <span class="font-bold">${safeName}</span>
                                     <div class="flex gap-2">
-                                        ${ch.category !== 'Uncategorized' ? `<span class="bg-white/10 text-[10px] px-2 py-0.5 rounded text-white/70">${ch.category}</span>` : ''}
-                                        ${ch.language !== 'Unknown' ? `<span class="bg-primary/10 text-[10px] text-primary px-2 py-0.5 rounded">${ch.language}</span>` : ''}
+                                        ${ch.category !== 'Uncategorized' ? `<span class="bg-white/10 text-[10px] px-2 py-0.5 rounded text-white/70">${safeCategory}</span>` : ''}
+                                        ${ch.language !== 'Unknown' ? `<span class="bg-primary/10 text-[10px] text-primary px-2 py-0.5 rounded">${safeLanguage}</span>` : ''}
                                     </div>
                                 </div>
                             `;

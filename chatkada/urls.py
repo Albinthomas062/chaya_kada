@@ -26,7 +26,8 @@ urlpatterns = [
     path('get-coin-progress/', views.get_coin_progress, name='get_coin_progress'),
     path('get-online-status/', views.get_online_status, name='get_online_status'),
     path('find-stranger/', views.find_stranger_chat, name='find_stranger_chat'),
-    path('check-match-status/', views.check_match_status, name='check_match_status'),
+    path('handle-stranger-chat-request/', views.handle_stranger_chat_request, name='handle_stranger_chat_request'),
+    # check-match-status removed - unused endpoint
     
     # Bench Invite URLs
     path('create-bench-invite/<uuid:room_id>/', views.create_bench_invite, name='create_bench_invite'),
