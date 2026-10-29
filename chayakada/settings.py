@@ -41,14 +41,24 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=lambda v: [s.strip() for s in v.split(",")]
 )
 
-# Production security settings
-if not DEBUG:
+# Production security settings (env-configurable)
+ENABLE_SSL_REDIRECT = config("ENABLE_SSL_REDIRECT", default=not DEBUG, cast=bool)
+ENABLE_SECURE_COOKIES = config("ENABLE_SECURE_COOKIES", default=not DEBUG, cast=bool)
+ENABLE_HSTS = config("ENABLE_HSTS", default=False, cast=bool)  # Opt-in for HSTS
+ENABLE_HSTS_PRELOAD = config("ENABLE_HSTS_PRELOAD", default=False, cast=bool)  # Opt-in for preload
+
+if ENABLE_SSL_REDIRECT:
     SECURE_SSL_REDIRECT = True
+
+if ENABLE_SECURE_COOKIES:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 31536000
+
+if ENABLE_HSTS:
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    if ENABLE_HSTS_PRELOAD:
+        SECURE_HSTS_PRELOAD = True
     
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 

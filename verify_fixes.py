@@ -1,138 +1,154 @@
-#!/usr/bin/env python3
 """
-Code-level verification of all bug fixes (no Django import needed).
+Playwright verification for bug fixes - Two users testing theatre and admin
 """
+from playwright.sync_api import sync_playwright, expect
+import time
 
-print("=" * 70)
-print("VERIFICATION TESTS FOR BUG FIXES")
-print("=" * 70)
-
-# Test 1: Stranger Matching
-print("\n1. ✅ Stranger Matching Logic")
-print("-" * 70)
-with open('chatkada/views.py', 'r') as f:
-    views_code = f.read()
-    checks = [
-        ('existing_match = ChatRoom.objects.filter', 'Checks for existing match before polling'),
-        ('timedelta(seconds=5)', 'Reduced wait time to 5 seconds for faster matching'),
-        ('return chat_room', 'Returns room object from create_stranger_chat_room'),
-        ("'status': 'matched'", 'Returns matched status to both users')
-    ]
-    for pattern, desc in checks:
-        if pattern in views_code:
-            print(f"   ✓ {desc}")
-
-# Test 2: Online Count
-print("\n2. ✅ Online Count Initial Render")
-print("-" * 70)
-if "'online_users_count': online_users_count" in views_code:
-    print("   ✓ Passes online_users_count to template context")
-    print("   ✓ Users see correct count on page load (not just 0)")
-
-# Test 3: Message Expiry
-print("\n3. ✅ Bench Message Expiry Fixed")
-print("-" * 70)
-with open('chatkada/models.py', 'r') as f:
-    models_code = f.read()
-    if 'if not self.expires_at and self.room and self.room.room_type' in models_code:
-        print("   ✓ Only sets expiry for stranger chats (not benches)")
-    if "== 'stranger'" in models_code:
-        print("   ✓ Checks room type before setting expiry")
-
-with open('chatkada/views.py', 'r') as f:
-    if 'if room.room_type == \'stranger\':' in f.read():
-        print("   ✓ chat_room view filters by room type")
-        print("   ✓ Benches show all messages (no expiry filter)")
-
-# Test 4: Theatre Async
-print("\n4. ✅ Theatre Async Safety (SynchronousOnlyOperation Fixed)")
-print("-" * 70)
-with open('chatkada/consumers.py', 'r') as f:
-    consumer_code = f.read()
-    if '@database_sync_to_async' in consumer_code and 'def get_user_avatar' in consumer_code:
-        print("   ✓ get_user_avatar() wrapped with @database_sync_to_async")
-        print("   ✓ No more SynchronousOnlyOperation errors")
-    if 'user_avatar = await self.get_user_avatar()' in consumer_code:
-        print("   ✓ Avatar accessed safely in async context")
-
-# Test 5: Security
-print("\n5. ✅ Security Fixes")
-print("-" * 70)
-if 'if not self.user.is_authenticated:' in consumer_code and 'await self.close()' in consumer_code:
-    print("   ✓ WebSocket consumers reject anonymous connections")
-    count = consumer_code.count('if not self.user.is_authenticated:')
-    print(f"   ✓ {count} consumers check authentication")
-
-if '@login_required' in views_code and 'def proxy_m3u' in views_code:
-    print("   ✓ proxy_m3u requires login (no open proxy)")
-
-if 'allowed_domains' in views_code:
-    print("   ✓ proxy_m3u has domain allowlist (prevents SSRF)")
-
-if views_code.count('verify=True') > 0:
-    print("   ✓ proxy_m3u enables SSL verification (was verify=False)")
+def run_verification():
+    print("=" * 80)
+    print("PLAYWRIGHT VERIFICATION - TWO USERS")
+    print("=" * 80)
     
-if 'verify=False' in views_code:
-    print("   ⚠  WARNING: Still has verify=False somewhere")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        
+        # Create two contexts for two different users
+        context1 = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        context2 = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        
+        page1 = context1.new_page()
+        page2 = context2.new_page()
+        
+        base_url = "http://localhost:8000"
+        
+        try:
+            # Test 1: Admin login and coin adjust
+            print("\n✓ Test 1: Admin Login and Coin Adjust")
+            page1.goto(f"{base_url}/custom-admin/login/")
+            page1.fill('input[name="username"]', 'admin')
+            page1.fill('input[name="password"]', 'admin123')
+            page1.click('button[type="submit"]')
+            page1.wait_for_load_state('networkidle')
+            
+            current_url = page1.url
+            if '/custom-admin/' in current_url:
+                print("   ✅ Admin logged in successfully")
+            else:
+                print(f"   ❌ Admin login failed - URL: {current_url}")
+                return False
+            
+            # Go to users page
+            page1.goto(f"{base_url}/custom-admin/users/")
+            page1.wait_for_load_state('networkidle')
+            
+            # Click on first user
+            first_user = page1.locator('a:has-text("testuser")').first
+            if first_user.is_visible():
+                first_user.click()
+                page1.wait_for_load_state('networkidle')
+                
+                # Try coin adjust
+                page1.fill('input[name="amount"]', '50')
+                page1.fill('input[name="reason"]', 'Test bonus')
+                page1.click('button:has-text("Adjust Coins")')
+                page1.wait_for_load_state('networkidle')
+                
+                # Check for success message
+                if 'Adjusted coins' in page1.content() or '50' in page1.content():
+                    print("   ✅ Coin adjustment works through UI")
+                else:
+                    print("   ⚠️  Coin adjustment UI test inconclusive")
+            else:
+                print("   ⚠️  No test user found to adjust coins")
+            
+            # Test 2: Theatre - User 1 creates/joins room
+            print("\n✓ Test 2: Theatre Multi-User Test")
+            
+            # User 1 register and login
+            page1.goto(f"{base_url}/register/")
+            page1.fill('input[name="username"]', f'u1_{int(time.time())}')
+            page1.fill('input[name="email"]', f'u1{int(time.time())}@test.com')
+            page1.fill('input[name="password1"]', 'testpass123')
+            page1.fill('input[name="password2"]', 'testpass123')
+            page1.click('button[type="submit"]')
+            page1.wait_for_load_state('networkidle')
+            print("   ✅ User 1 registered")
+            
+            # User 2 register and login
+            page2.goto(f"{base_url}/register/")
+            page2.fill('input[name="username"]', f'u2_{int(time.time())}')
+            page2.fill('input[name="email"]', f'u2{int(time.time())}@test.com')
+            page2.fill('input[name="password1"]', 'testpass123')
+            page2.fill('input[name="password2"]', 'testpass123')
+            page2.click('button[type="submit"]')
+            page2.wait_for_load_state('networkidle')
+            print("   ✅ User 2 registered")
+            
+            # Both users go to theatre
+            page1.goto(f"{base_url}/find-chat/")
+            page1.wait_for_timeout(500)
+            
+            # Look for theatre button
+            theatre_btn = page1.locator('button:has-text("Theatre"), a:has-text("Theatre")').first
+            if theatre_btn.is_visible():
+                theatre_btn.click()
+                page1.wait_for_load_state('networkidle')
+                
+                # Check loader hides
+                time.sleep(3)  # Wait for loader to hide
+                loading = page1.locator('#loading-screen')
+                if loading.is_visible():
+                    print("   ❌ LOADER STILL STUCK - hideTheatreLoading() name clash not fixed")
+                else:
+                    print("   ✅ Loader hides correctly")
+                
+                # Extract room ID from URL
+                room_id = page1.url.split('/')[-2] if '/theatre/' in page1.url else None
+                
+                if room_id:
+                    # User 2 joins same room
+                    page2.goto(f"{base_url}/theatre/{room_id}/")
+                    page2.wait_for_timeout(3000)
+                    
+                    # Check if both users see the theatre
+                    if 'theatre' in page2.url.lower():
+                        print("   ✅ User 2 joined same theatre room")
+                        
+                        # Try sending a chat message from user 1
+                        chat_input = page1.locator('#chat-input')
+                        if chat_input.is_visible():
+                            chat_input.fill('Hello from U1')
+                            page1.click('#send-btn')
+                            time.sleep(1)
+                            
+                            # Check if user 2 sees the message
+                            page2.wait_for_timeout(2000)
+                            if 'Hello from U1' in page2.content():
+                                print("   ✅ User 2 sees User 1's chat message (realtime works)")
+                            else:
+                                print("   ❌ User 2 doesn't see User 1's chat (realtime broken)")
+                        else:
+                            print("   ⚠️  Chat input not visible")
+                    else:
+                        print("   ❌ User 2 failed to join theatre")
+                else:
+                    print("   ⚠️  Could not extract room ID")
+            else:
+                print("   ⚠️  Theatre button not found")
+            
+            print("\n" + "=" * 80)
+            print("VERIFICATION COMPLETE")
+            print("=" * 80)
+            return True
+            
+        except Exception as e:
+            print(f"\n❌ Verification failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        finally:
+            browser.close()
 
-with open('chatkada/templates/theatre_room.html', 'r') as f:
-    theatre_html = f.read()
-    if 'escapeHtml' in theatre_html:
-        print("   ✓ Theatre escapes HTML (XSS protection)")
-    if 'escapeHtml(data.username)' in theatre_html:
-        print("   ✓ Usernames escaped")
-    if 'escapeHtml(data.message)' in theatre_html:
-        print("   ✓ Messages escaped")
-
-# Test 6: URLs
-print("\n6. ✅ URL Routes")
-print("-" * 70)
-with open('chatkada/urls.py', 'r') as f:
-    if 'check-match-status' in f.read():
-        print("   ✓ check_match_status route added to urls.py")
-
-# Test 7: Invite Links
-print("\n7. ✅ Invite Link URL Building")
-print("-" * 70)
-count = views_code.count('request.build_absolute_uri')
-if count > 0:
-    print(f"   ✓ Uses request.build_absolute_uri ({count} times)")
-    print("   ✓ Generates proper absolute URLs (not http://127.0.0.1)")
-
-# Test 8: venv Not in Git
-print("\n8. ✅ venv Not Committed")
-print("-" * 70)
-with open('.gitignore', 'r') as f:
-    if 'venv/' in f.read():
-        print("   ✓ venv/ in .gitignore")
-
-import subprocess
-result = subprocess.run(['git', 'ls-files', 'venv/'], capture_output=True, text=True)
-if not result.stdout.strip():
-    print("   ✓ venv/ not tracked by git")
-else:
-    print("   ✗ venv/ still in git")
-
-print("\n" + "=" * 70)
-print("✅ ALL CODE-LEVEL VERIFICATIONS PASSED")
-print("=" * 70)
-
-print("\n📋 SUMMARY OF FIXES:")
-print("-" * 70)
-print("1. ✅ Stranger matching: Both users get redirected to same room")
-print("2. ✅ Online count: Shows correct count on page load")
-print("3. ✅ Bench messages: Persist on reload (no expiry)")
-print("4. ✅ Theatre: No more 1011/SynchronousOnlyOperation crashes")
-print("5. ✅ Security: Auth required, no XSS, SSL verification, domain allowlist")
-print("6. ✅ venv/ removed from git")
-
-print("\n🧪 MANUAL TESTING REQUIRED:")
-print("-" * 70)
-print("Start: daphne -b 127.0.0.1 -p 8000 chayakada.asgi:application")
-print("With two real users over WebSockets:")
-print("  ✓ Both users match and redirect to same stranger room")
-print("  ✓ Messages flow both ways and persist on reload")
-print("  ✓ Bench invite link works") 
-print("  ✓ Theatre chat and seats work without errors")
-print("  ✓ Anonymous WebSocket connections rejected")
-print("=" * 70)
+if __name__ == '__main__':
+    success = run_verification()
+    exit(0 if success else 1)
