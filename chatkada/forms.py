@@ -76,7 +76,27 @@ class SimpleUserCreationForm(UserCreationForm):
 class ItemForm(forms.ModelForm):
     class Meta:
         model = Item
-        fields = ['name', 'emoji', 'category', 'price', 'description', 'available', 'can_be_shared']
+        fields = ['name', 'emoji', 'image', 'category', 'price', 'description', 'available', 'can_be_shared', 'sort_order']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+            'emoji': forms.TextInput(attrs={'placeholder': '☕'}),
+            'price': forms.NumberInput(attrs={'min': 0}),
+            'sort_order': forms.NumberInput(attrs={'min': 0}),
+        }
+    
+    def clean_image(self):
+        image = self.cleaned_data.get('image')
+        if image:
+            # Validate file size (max 5MB)
+            if image.size > 5 * 1024 * 1024:
+                raise forms.ValidationError("Image file too large ( > 5MB )")
+            
+            # Validate file type
+            valid_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+            if hasattr(image, 'content_type') and image.content_type not in valid_types:
+                raise forms.ValidationError("Invalid image type. Use JPEG, PNG, GIF, or WebP.")
+        
+        return image
 
 class AssignChallengeForm(forms.Form):
     challenge_type = forms.ChoiceField(choices=DailyChallenge.CHALLENGE_TYPES)

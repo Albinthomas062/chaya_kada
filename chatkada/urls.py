@@ -1,6 +1,7 @@
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from . import views
+from . import admin_views
 
 urlpatterns = [
     path('', views.home, name='home'),
@@ -40,14 +41,26 @@ urlpatterns = [
     
     # Item management for admin
     path('custom-admin/login/', views.custom_admin_login, name='custom_admin_login'),
-    path('custom-admin/', views.custom_admin_dashboard, name='custom_admin_dashboard'),
-    path('custom-admin/items/', views.manage_items, name='manage_items'),
-    path('custom-admin/items/add/', views.add_item, name='add_item'),
-    path('custom-admin/items/<int:item_id>/edit/', views.edit_item, name='edit_item'),
-    path('custom-admin/items/<int:item_id>/delete/', views.delete_item, name='delete_item'),
+    path('custom-admin/logout/', admin_views.custom_admin_logout, name='custom_admin_logout'),
+    path('custom-admin/', admin_views.custom_admin_dashboard, name='custom_admin_dashboard'),
+    path('custom-admin/items/', admin_views.manage_items, name='manage_items'),
+    path('custom-admin/items/add/', admin_views.add_item, name='add_item'),
+    path('custom-admin/items/<int:item_id>/edit/', admin_views.edit_item, name='edit_item'),
+    path('custom-admin/items/<int:item_id>/delete/', admin_views.delete_item, name='delete_item'),
+    path('custom-admin/items/<int:item_id>/toggle/', admin_views.toggle_item_availability, name='toggle_item_availability'),
+    
+    # User management
+    path('custom-admin/users/', admin_views.manage_users, name='manage_users'),
+    path('custom-admin/users/<int:user_id>/', admin_views.view_user, name='view_user'),
+    path('custom-admin/users/<int:user_id>/adjust-coins/', admin_views.adjust_user_coins, name='adjust_user_coins'),
+    path('custom-admin/users/<int:user_id>/toggle-ban/', admin_views.toggle_user_ban, name='toggle_user_ban'),
+    
+    # Room management
+    path('custom-admin/rooms/', admin_views.manage_rooms, name='manage_rooms'),
+    path('custom-admin/rooms/<uuid:room_id>/close/', admin_views.close_room, name='close_room'),
     
     # Challenge management for admin
-    path('custom-admin/challenges/', views.manage_challenges, name='manage_challenges'),
-    path('custom-admin/challenges/assign/', views.assign_challenge, name='assign_challenge'),
-    path('custom-admin/analytics/', views.analytics_dashboard, name='analytics_dashboard'),
+    path('custom-admin/challenges/', admin_views.manage_challenges, name='manage_challenges'),
+    path('custom-admin/challenges/assign/', admin_views.assign_challenge, name='assign_challenge'),
+    path('custom-admin/analytics/', admin_views.analytics_dashboard, name='analytics_dashboard'),
 ]

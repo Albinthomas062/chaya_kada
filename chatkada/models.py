@@ -207,18 +207,35 @@ class Item(models.Model):
         ('chai', 'Chai'),
         ('snacks', 'Snacks'),
         ('sweets', 'Sweets'),
+        ('gifts', 'Gifts'),
     ]
     
     name = models.CharField(max_length=100)
-    price = models.IntegerField()
+    price = models.IntegerField(help_text="Price in coins")
     category = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
-    emoji = models.CharField(max_length=10, default='☕')
+    emoji = models.CharField(max_length=10, default='☕', help_text="Emoji fallback if no image")
+    image = models.ImageField(upload_to='items/', blank=True, null=True, help_text="Item image (optional)")
     description = models.TextField(blank=True)
     available = models.BooleanField(default=True)
     can_be_shared = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0, help_text="Lower numbers appear first")
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        ordering = ['sort_order', 'category', 'name']
+        indexes = [
+            models.Index(fields=['category', 'available']),
+        ]
 
     def __str__(self):
         return self.name
+    
+    def get_image_url(self):
+        """Return image URL or None"""
+        if self.image and hasattr(self.image, 'url'):
+            return self.image.url
+        return None
 
 class Purchase(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
