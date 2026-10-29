@@ -65,8 +65,9 @@ class AdminLoginTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.staff_user = User.objects.create_user(username='admin', password='correct', is_staff=True)
-        # Clear login attempts before each test
-        admin_views.LOGIN_ATTEMPTS.clear()
+        # Clear cache (used for rate limiting) before each test
+        from django.core.cache import cache
+        cache.clear()
         
     def test_valid_login_succeeds(self):
         response = self.client.post(reverse('custom_admin_login'), {
