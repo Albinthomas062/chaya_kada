@@ -49,4 +49,5 @@ urlpatterns = [
     # Challenge management for admin
     path('custom-admin/challenges/', views.manage_challenges, name='manage_challenges'),
     path('custom-admin/challenges/assign/', views.assign_challenge, name='assign_challenge'),
+    path('custom-admin/analytics/', views.analytics_dashboard, name='analytics_dashboard'),
 ]

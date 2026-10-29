@@ -1,0 +1,467 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Analytics Dashboard - Chaya Kada Admin{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-header">
+        <h1><i class="fas fa-chart-line"></i> Analytics Dashboard</h1>
+        <div class="date-range">
+            <span><i class="fas fa-calendar"></i> Last 7 Days</span>
+        </div>
+    </div>
+
+    <!-- Key Metrics Summary -->
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-icon" style="background: #4CAF50;">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="metric-details">
+                <h3>{{ metrics.daily_active_users }}</h3>
+                <p>Daily Active Users</p>
+                <span class="metric-change positive">{{ metrics.dau_change }}% from yesterday</span>
+            </div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-icon" style="background: #2196F3;">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <div class="metric-details">
+                <h3>{{ metrics.signups_today }}</h3>
+                <p>Signups Today</p>
+                <span class="metric-subtitle">{{ metrics.signups_7days }} this week</span>
+            </div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-icon" style="background: #FF9800;">
+                <i class="fas fa-user-friends"></i>
+            </div>
+            <div class="metric-details">
+                <h3>{{ metrics.match_rate }}%</h3>
+                <p>Match Success Rate</p>
+                <span class="metric-subtitle">{{ metrics.total_matches }} matches made</span>
+            </div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-icon" style="background: #9C27B0;">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="metric-details">
+                <h3>{{ metrics.median_match_time }}s</h3>
+                <p>Median Time to Match</p>
+                <span class="metric-subtitle">Avg: {{ metrics.avg_match_time }}s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Engagement Metrics -->
+    <div class="charts-row">
+        <div class="chart-card">
+            <h2><i class="fas fa-comments"></i> Messaging Activity</h2>
+            <div class="stat-row">
+                <div class="stat-item">
+                    <h3>{{ metrics.total_messages }}</h3>
+                    <p>Messages Sent (7d)</p>
+                </div>
+                <div class="stat-item">
+                    <h3>{{ metrics.avg_messages_per_chat }}</h3>
+                    <p>Avg Messages Per Chat</p>
+                </div>
+                <div class="stat-item">
+                    <h3>{{ metrics.active_chats }}</h3>
+                    <p>Active Chats</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h2><i class="fas fa-door-open"></i> Room Usage</h2>
+            <div class="stat-row">
+                <div class="stat-item">
+                    <h3>{{ metrics.benches_created }}</h3>
+                    <p>Benches Created (7d)</p>
+                </div>
+                <div class="stat-item">
+                    <h3>{{ metrics.theatres_created }}</h3>
+                    <p>Theatres Created (7d)</p>
+                </div>
+                <div class="stat-item">
+                    <h3>{{ metrics.avg_participants }}</h3>
+                    <p>Avg Participants</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Economy Metrics -->
+    <div class="charts-row">
+        <div class="chart-card">
+            <h2><i class="fas fa-coins"></i> Coin Economy</h2>
+            <div class="stat-row">
+                <div class="stat-item">
+                    <h3>{{ metrics.coins_earned }}</h3>
+                    <p>Coins Earned (7d)</p>
+                </div>
+                <div class="stat-item">
+                    <h3>{{ metrics.coins_spent }}</h3>
+                    <p>Coins Spent (7d)</p>
+                </div>
+                <div class="stat-item">
+                    <h3>{{ metrics.coin_balance }}</h3>
+                    <p>Net Balance</p>
+                    <span class="metric-subtitle {% if metrics.coin_balance >= 0 %}positive{% else %}negative{% endif %}">
+                        {% if metrics.coin_balance >= 0 %}+{% endif %}{{ metrics.coin_balance }}
+                    </span>
+                </div>
+            </div>
+            <div class="progress-row">
+                <label>Economy Health (Spending/Earning Ratio)</label>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ metrics.spending_ratio }}%; background: {% if metrics.spending_ratio > 80 %}#4CAF50{% elif metrics.spending_ratio > 50 %}#FF9800{% else %}#f44336{% endif %}"></div>
+                </div>
+                <span class="progress-label">{{ metrics.spending_ratio }}%</span>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h2><i class="fas fa-shopping-cart"></i> Top Items</h2>
+            <div class="top-items-list">
+                {% for item in metrics.top_items %}
+                <div class="top-item">
+                    <span class="item-rank">#{{ forloop.counter }}</span>
+                    <span class="item-emoji">{{ item.emoji }}</span>
+                    <div class="item-info">
+                        <strong>{{ item.name }}</strong>
+                        <span>{{ item.purchase_count }} purchases</span>
+                    </div>
+                    <span class="item-revenue">{{ item.total_revenue }} coins</span>
+                </div>
+                {% empty %}
+                <p class="empty-state">No purchases yet</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Events -->
+    <div class="chart-card">
+        <h2><i class="fas fa-history"></i> Recent Events (Last 50)</h2>
+        <div class="events-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Event</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in recent_events %}
+                    <tr>
+                        <td>{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        <td>{{ event.user.username|default:"Anonymous" }}</td>
+                        <td><span class="event-badge event-{{ event.event_type }}">{{ event.get_event_type_display }}</span></td>
+                        <td>{{ event.metadata_text|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" class="empty-state">No events tracked yet</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .admin-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+
+    .admin-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+
+    .admin-header h1 {
+        font-size: 2rem;
+        color: var(--accent-color);
+    }
+
+    .date-range {
+        background: var(--surface-color);
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+    }
+
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .metric-card {
+        background: var(--surface-color);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .metric-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: white;
+    }
+
+    .metric-details h3 {
+        font-size: 2rem;
+        margin: 0;
+        color: white;
+    }
+
+    .metric-details p {
+        margin: 0.25rem 0;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+
+    .metric-change {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        display: inline-block;
+        margin-top: 0.5rem;
+    }
+
+    .metric-change.positive {
+        background: rgba(76, 175, 80, 0.2);
+        color: #4CAF50;
+    }
+
+    .metric-change.negative {
+        background: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+    }
+
+    .metric-subtitle {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .charts-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .chart-card {
+        background: var(--surface-color);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+    }
+
+    .chart-card h2 {
+        font-size: 1.25rem;
+        margin: 0 0 1.5rem 0;
+        color: var(--accent-color);
+    }
+
+    .stat-row {
+        display: flex;
+        justify-content: space-around;
+        text-align: center;
+        gap: 1rem;
+    }
+
+    .stat-item {
+        flex: 1;
+    }
+
+    .stat-item h3 {
+        font-size: 2rem;
+        margin: 0;
+        color: white;
+    }
+
+    .stat-item p {
+        margin: 0.5rem 0;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .progress-row {
+        margin-top: 1.5rem;
+    }
+
+    .progress-row label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: var(--text-color);
+        font-weight: 500;
+    }
+
+    .progress-bar {
+        height: 24px;
+        background: rgba(45, 45, 45, 0.5);
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .progress-fill {
+        height: 100%;
+        transition: width 0.3s ease;
+    }
+
+    .progress-label {
+        display: inline-block;
+        margin-top: 0.5rem;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+
+    .top-items-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .top-item {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.75rem;
+        background: rgba(45, 45, 45, 0.5);
+        border-radius: 8px;
+    }
+
+    .item-rank {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--accent-color);
+        min-width: 30px;
+    }
+
+    .item-emoji {
+        font-size: 2rem;
+    }
+
+    .item-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .item-info strong {
+        color: white;
+    }
+
+    .item-info span {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .item-revenue {
+        color: var(--accent-color);
+        font-weight: 600;
+    }
+
+    .events-table {
+        overflow-x: auto;
+    }
+
+    .events-table table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .events-table th {
+        text-align: left;
+        padding: 0.75rem;
+        border-bottom: 2px solid var(--border-color);
+        color: var(--accent-color);
+        font-weight: 600;
+    }
+
+    .events-table td {
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-color);
+    }
+
+    .event-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    .event-signup { background: rgba(33, 150, 243, 0.2); color: #2196F3; }
+    .event-login { background: rgba(76, 175, 80, 0.2); color: #4CAF50; }
+    .event-stranger_search_started { background: rgba(255, 152, 0, 0.2); color: #FF9800; }
+    .event-stranger_match_made { background: rgba(156, 39, 176, 0.2); color: #9C27B0; }
+    .event-message_sent { background: rgba(3, 169, 244, 0.2); color: #03A9F4; }
+    .event-bench_created { background: rgba(139, 94, 52, 0.3); color: #c7906b; }
+    .event-bench_joined { background: rgba(139, 94, 52, 0.2); color: #c7906b; }
+    .event-theatre_created { background: rgba(138, 43, 226, 0.2); color: #8a2be2; }
+    .event-theatre_joined { background: rgba(138, 43, 226, 0.2); color: #8a2be2; }
+    .event-item_bought { background: rgba(255, 179, 71, 0.2); color: #ffb347; }
+    .event-item_shared { background: rgba(76, 175, 80, 0.2); color: #4CAF50; }
+    .event-challenge_claimed { background: rgba(255, 235, 59, 0.2); color: #FFEB3B; }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-secondary);
+        font-style: italic;
+    }
+
+    @media (max-width: 768px) {
+        .admin-container {
+            padding: 1rem;
+        }
+
+        .admin-header {
+            flex-direction: column;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        .metrics-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .charts-row {
+            grid-template-columns: 1fr;
+        }
+
+        .stat-row {
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}
