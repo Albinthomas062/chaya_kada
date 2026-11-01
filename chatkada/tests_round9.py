@@ -225,3 +225,36 @@ class BenchInviteFromRoomTests(TestCase):
         c = Client(); c.login(username='friend', password='pw12345!')
         data = c.post(reverse('create_bench_invite', args=[self.bench.room_id]), {'max_uses': 5}).json()
         self.assertFalse(data['success'])
+
+
+class AudioBackButtonCacheHeaderTests(TestCase):
+    """Item 5: authenticated pages must stay bfcache-eligible (no `no-store`) but
+    still revalidate, so Back keeps the audio element alive without serving stale pages."""
+
+    def test_authenticated_pages_are_no_cache_but_not_no_store(self):
+        User.objects.create_user('listener', password='pw12345!')
+        c = Client(); c.login(username='listener', password='pw12345!')
+        r = c.get(reverse('kada'))
+        cc = r['Cache-Control']
+        self.assertIn('no-cache', cc)
+        self.assertIn('private', cc)
+        self.assertIn('must-revalidate', cc)
+        self.assertNotIn('no-store', cc)
+
+    def test_base_template_rechecks_session_on_bfcache_restore(self):
+        User.objects.create_user('listener2', password='pw12345!')
+        c = Client(); c.login(username='listener2', password='pw12345!')
+        html = c.get(reverse('kada')).content.decode()
+        self.assertIn('pageshow', html)
+        self.assertIn('enhanced-audio-control.js', html)
+
+
+class ChatRoomPhoneLayoutTests(TestCase):
+    def test_send_button_overrides_global_full_width_btn(self):
+        owner = User.objects.create_user('lay', password='pw12345!')
+        room = ChatRoom.objects.create(room_type='private_bench', bench_name='B', created_by=owner, max_users=4)
+        room.participants.add(owner)
+        c = Client(); c.login(username='lay', password='pw12345!')
+        html = c.get(reverse('chat_room', args=[room.room_id])).content.decode()
+        self.assertIn('Phone fit:', html)
+        self.assertRegex(html, r'#send-button,\s*\.chat-controls \.btn')
