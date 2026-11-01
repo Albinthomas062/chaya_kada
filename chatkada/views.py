@@ -30,61 +30,15 @@ import requests as req_lib
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Login rate limiting constants
-MAX_LOGIN_ATTEMPTS = 5
-LOGIN_LOCKOUT_DURATION = 900  # 15 minutes in seconds
+from . import login_throttle
+
+# Login rate limiting (see chatkada/login_throttle.py)
+MAX_LOGIN_ATTEMPTS = login_throttle.MAX_ATTEMPTS
+LOGIN_LOCKOUT_DURATION = login_throttle.LOCKOUT_SECONDS
 MAX_PURCHASE_QUANTITY = 10
+LOGIN_SCOPE = 'site'
+get_client_ip = login_throttle.get_client_ip
 
-
-def get_client_ip(request):
-    """Get client IP address from request (non-spoofable)"""
-    # Use REMOTE_ADDR which is set by the web server
-    # Daphne with --proxy-headers already sets REMOTE_ADDR from X-Forwarded-For
-    # behind trusted proxies
-    return request.META.get('REMOTE_ADDR', '0.0.0.0')
-
-
-def get_login_lockout_key(username, ip_address):
-    """Generate cache keys for login lockout tracking"""
-    # Key both by IP and by username alone (to prevent distributed attacks)
-    return [
-        f'user_login_attempts_{username}_{ip_address}',
-        f'user_login_attempts_user_{username}'
-    ]
-
-
-def check_user_login_attempts(username, ip_address):
-    """Check if user is locked out due to failed login attempts"""
-    keys = get_login_lockout_key(username, ip_address)
-    
-    # Check both IP-specific and username-only lockouts
-    for key in keys:
-        attempts_data = cache.get(key)
-        if attempts_data:
-            attempts, last_attempt = attempts_data
-            if attempts >= MAX_LOGIN_ATTEMPTS:
-                if time.time() - last_attempt < LOGIN_LOCKOUT_DURATION:
-                    return False
-    return True
-
-
-def record_user_login_attempt(username, ip_address, success=False):
-    """Record a user login attempt"""
-    keys = get_login_lockout_key(username, ip_address)
-    
-    if success:
-        # Clear both keys on success
-        for key in keys:
-            cache.delete(key)
-    else:
-        # Increment both counters
-        for key in keys:
-            attempts_data = cache.get(key)
-            if attempts_data:
-                attempts, _ = attempts_data
-                cache.set(key, [attempts + 1, time.time()], LOGIN_LOCKOUT_DURATION)
-            else:
-                cache.set(key, [1, time.time()], LOGIN_LOCKOUT_DURATION)
 
 def home(request):
     return render(request, 'home.html')
@@ -152,7 +106,7 @@ def login_view(request):
         ip_address = get_client_ip(request)
         
         # Check rate limiting
-        if not check_user_login_attempts(username, ip_address):
+        if login_throttle.is_locked(LOGIN_SCOPE, username, ip_address):
             messages.error(
                 request,
                 f"Too many failed login attempts. Please try again in {LOGIN_LOCKOUT_DURATION // 60} minutes."
@@ -176,7 +130,7 @@ def login_view(request):
         
         if user is not None:
             login(request, user)
-            record_user_login_attempt(username, ip_address, success=True)
+            login_throttle.record_success(LOGIN_SCOPE, username, ip_address)
             messages.success(request, f'Welcome back, {username}!')
             
             # Validate next_url to prevent open redirect
@@ -190,7 +144,7 @@ def login_view(request):
                     return redirect(next_url)
             return redirect('kada')
         else:
-            record_user_login_attempt(username, ip_address, success=False)
+            login_throttle.record_failure(LOGIN_SCOPE, username, ip_address)
             messages.error(request, 'Invalid username or password.')
             return render(request, 'registration/login.html', {'form': form})
     else:

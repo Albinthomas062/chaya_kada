@@ -1,4 +1,4 @@
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -203,3 +203,55 @@ class BuyItemTests(TestCase):
 
     def test_only_post_allowed(self):
         self.assertEqual(self.client.get(reverse('buy_item')).status_code, 405)
+
+
+@override_settings(LOGIN_SOFT_DELAY_SECONDS=0)
+class SiteLoginLockoutTests(TestCase):
+    """Issue 2: /login/ lockout is per username+REMOTE_ADDR, not username-only."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(username='victim', password='rightpass1')
+
+    def _post(self, password, ip, **extra):
+        c = Client(REMOTE_ADDR=ip)
+        return c, c.post(reverse('login'), {'username': 'victim', 'password': password}, **extra)
+
+    def test_attacker_ip_locked_after_five(self):
+        for _ in range(5):
+            self._post('wrong', '10.0.0.66')
+        _, r = self._post('rightpass1', '10.0.0.66')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Too many failed login attempts')
+
+    def test_victim_on_other_ip_not_locked(self):
+        for _ in range(10):
+            self._post('wrong', '10.0.0.66')
+        _, r = self._post('rightpass1', '10.0.0.7')
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(r.url.endswith('/kada/'))
+
+    def test_distributed_attack_does_not_lock_account(self):
+        # 30 failures spread over 30 IPs (above the 20 alert threshold)
+        for i in range(30):
+            self._post('wrong', f'10.1.0.{i}')
+        _, r = self._post('rightpass1', '10.9.9.9')
+        self.assertEqual(r.status_code, 302)
+
+    def test_spoofed_forwarded_header_ignored(self):
+        for _ in range(5):
+            self._post('wrong', '10.0.0.66', HTTP_X_FORWARDED_FOR='1.2.3.4')
+        # changing X-Forwarded-For does not escape the lock on the same REMOTE_ADDR
+        _, r = self._post('rightpass1', '10.0.0.66', HTTP_X_FORWARDED_FOR='5.6.7.8')
+        self.assertContains(r, 'Too many failed login attempts')
+
+    def test_success_clears_ip_counter(self):
+        for _ in range(4):
+            self._post('wrong', '10.0.0.8')
+        c, r = self._post('rightpass1', '10.0.0.8')
+        self.assertEqual(r.status_code, 302)
+        c.logout()
+        for _ in range(4):
+            self._post('wrong', '10.0.0.8')
+        _, r = self._post('rightpass1', '10.0.0.8')
+        self.assertEqual(r.status_code, 302)
