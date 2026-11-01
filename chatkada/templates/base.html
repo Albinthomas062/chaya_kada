@@ -195,16 +195,16 @@
     </div>
 
     <!-- Audio Elements -->
-    <audio id="rain-audio" loop>
+    <audio id="rain-audio" loop preload="none">
         <source src="{% static 'chatkada/sounds/Rain.mp3' %}" type="audio/mpeg">
     </audio>
-    <audio id="thunder-audio">
+    <audio id="thunder-audio" preload="none">
         <source src="{% static 'chatkada/sounds/thunder-1.m4a' %}" type="audio/mpeg">
     </audio>
-    <audio id="crowd-audio" loop>
+    <audio id="crowd-audio" loop preload="none">
         <source src="{% static 'chatkada/sounds/Cafe.mp3' %}" type="audio/mpeg">
     </audio>
-    <audio id="music-audio">
+    <audio id="music-audio" preload="none">
         <source src="{% static 'chatkada/sounds/Alliyambal.mp3' %}" type="audio/mpeg">
     </audio>
 
@@ -221,6 +221,19 @@
     <!-- Screen Flash Effect -->
     <div id="screen-flash" class="screen-flash"></div>
 
+    {% if user.is_authenticated %}
+    <script>
+        // Page restored from the back/forward cache: make sure we're still
+        // logged in (e.g. user logged out, then pressed Back).
+        window.addEventListener('pageshow', function (e) {
+            window.__lastPageshowPersisted = e.persisted;
+            if (!e.persisted) return;
+            fetch('{% url "get_online_status" %}', { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })
+                .then(function (r) { if (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403 || r.status === 302) location.reload(); })
+                .catch(function () {});
+        });
+    </script>
+    {% endif %}
     <script>
         window.addEventListener('load', function () {
             var loader = document.getElementById('loader-screen');
@@ -292,8 +305,8 @@
 
     <script src="{% load static %}{% static 'chatkada/js/app.js' %}"></script>
     <script src="{% load static %}{% static 'chatkada/js/rain.js' %}"></script>
-    <script src="{% load static %}{% static 'chatkada/js/enhanced-audio-control.js' %}?v=3"></script>
-    <script src="{% load static %}{% static 'chatkada/js/persistent-audio.js' %}?v=1"></script>
+    <script src="{% load static %}{% static 'chatkada/js/enhanced-audio-control.js' %}?v=4"></script>
+    <script src="{% load static %}{% static 'chatkada/js/persistent-audio.js' %}?v=2"></script>
     {% block extra_js %}{% endblock %}
 </body>
 

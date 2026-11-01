@@ -63,31 +63,226 @@ class EnhancedAudioController {
         this.init();
     }
 
-    async init() {
-        await this.initWebAudio();
+    init() {
+        this.playbackKey = 'chayakada-audio-playback';
+        this.restoring = {};          // track -> true while its position is being restored
+        this.lastPlaybackSave = 0;
         this.loadSettings();
+        this.migrateLegacyMusicState();
         this.setupEventListeners();
-        this.updateAudioElements();
+        this.setupPlaybackPersistence();
 
-        // Try to restore previous music state first
-        const restored = this.restoreMusicState();
+        // Restore everything (on/off, track, volume, position) WITHOUT resetting
+        // sources: this is what makes audio continue across page changes.
+        this.restoreFromSnapshot();
+        this.updateControls();
+        this.updateSongDisplay();
 
-        // Only randomize if we didn't restore a previous state
-        if (!restored) {
-            this.randomizeInitialSong();
-        }
-
+        if (this.settings.thunder.enabled) this.startLightningTimer();
         this.createLightningElements(); // Create lightning elements on init
 
-        // Periodically save music state while playing
-        setInterval(() => {
-            if (this.settings.music.enabled && this.audioElements.music && !this.audioElements.music.paused) {
-                this.saveMusicState();
-            }
-        }, 5000); // Save every 5 seconds while playing
+        // Web Audio (realistic-mode filter) is only wired after a user gesture,
+        // otherwise a suspended AudioContext would silence the media elements.
+        if (this.realisticMode) {
+            const arm = () => {
+                this.initWebAudio();
+                if (this.realisticMode) this.enableRealisticMode();
+            };
+            if (navigator.userActivation && navigator.userActivation.hasBeenActive) arm();
+            else document.addEventListener('pointerdown', arm, { once: true });
+        }
     }
 
-    async initWebAudio() {
+    // ---------- source helpers ----------
+    absUrl(path) {
+        return new URL(path, window.location.href).href;
+    }
+
+    // Compare by absolute URL (el.src / currentSrc are absolute, our paths are
+    // relative and may contain spaces) and never reassign the same source.
+    hasSrc(el, path) {
+        if (!el) return false;
+        const want = this.absUrl(path);
+        const have = el.getAttribute('src') ? el.src : (el.currentSrc || '');
+        return have === want || decodeURI(have) === decodeURI(want);
+    }
+
+    setSrcIfChanged(el, path) {
+        if (!el || this.hasSrc(el, path)) return false;
+        el.src = path;
+        return true;
+    }
+
+    songPath(song) {
+        return `/static/chatkada/sounds/${song.file}`;
+    }
+
+    currentSong() {
+        if (!this.nostalgicSongs.length) return null;
+        return this.nostalgicSongs[((this.currentSongIndex % this.nostalgicSongs.length) + this.nostalgicSongs.length) % this.nostalgicSongs.length];
+    }
+
+    updateSongDisplay() {
+        const el = document.getElementById('current-song');
+        if (!el) return;
+        const song = this.currentSong();
+        el.textContent = this.settings.music.enabled && song ? song.name : 'No song playing';
+    }
+
+    // ---------- playback persistence ----------
+    readSnapshot() {
+        try {
+            const snap = JSON.parse(localStorage.getItem(this.playbackKey) || 'null');
+            if (!snap || Date.now() - (snap.savedAt || 0) > 6 * 3600 * 1000) return null;
+            return snap;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    trackState(name) {
+        const el = this.audioElements[name];
+        if (!el) return null;
+        return {
+            time: el.currentTime || 0,
+            playing: !el.paused && !el.ended,
+            src: el.currentSrc || el.src || ''
+        };
+    }
+
+    savePlayback(force = false) {
+        const now = Date.now();
+        if (!force && now - this.lastPlaybackSave < 1000) return;
+        this.lastPlaybackSave = now;
+        try {
+            const prev = this.readSnapshot() || {};
+            const snap = { savedAt: now };
+            ['rain', 'crowd', 'music'].forEach(name => {
+                const el = this.audioElements[name];
+                // While a track is still being restored (or has no media yet)
+                // keep the previous value: never overwrite a good position with 0.
+                if (!el || this.restoring[name] || el.readyState < 1) {
+                    if (prev[name]) snap[name] = prev[name];
+                    return;
+                }
+                snap[name] = this.trackState(name);
+            });
+            const song = this.currentSong();
+            if (snap.music && song) snap.music.file = song.file;
+            else if (prev.music && prev.music.file && snap.music) snap.music.file = prev.music.file;
+            localStorage.setItem(this.playbackKey, JSON.stringify(snap));
+        } catch (e) {
+            console.warn('Failed to save audio playback state:', e);
+        }
+    }
+
+    setupPlaybackPersistence() {
+        ['rain', 'crowd', 'music'].forEach(name => {
+            const el = this.audioElements[name];
+            if (!el) return;
+            el.preload = 'metadata';
+            el.addEventListener('timeupdate', () => this.savePlayback(false));
+            el.addEventListener('pause', () => this.savePlayback(true));
+            el.addEventListener('playing', () => {
+                this.savePlayback(true);
+                if (window.persistentAudioManager) window.persistentAudioManager.hideAutoplayWarning();
+            });
+        });
+        const flush = () => this.savePlayback(true);
+        window.addEventListener('pagehide', flush);
+        window.addEventListener('beforeunload', flush);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flush();
+        });
+        // Back/forward cache: the page is resumed with media paused -> resume
+        // from the latest snapshot (another page may have advanced it).
+        window.addEventListener('pageshow', (e) => {
+            if (e.persisted) {
+                this.loadSettings();
+                this.updateControls();
+                this.restoreFromSnapshot();
+            }
+        });
+    }
+
+    // Seek to a saved position once metadata is available, then play.
+    resumeTrack(name, path, saved, volume, loop) {
+        const el = this.audioElements[name];
+        if (!el) return;
+        this.restoring[name] = true;
+        const changed = this.setSrcIfChanged(el, path);
+        el.loop = loop;
+        el.volume = Math.max(0, Math.min(1, volume / 100));
+        const apply = () => {
+            if (saved && saved.time > 0 && isFinite(saved.time)) {
+                let t = saved.time;
+                if (isFinite(el.duration) && el.duration > 0) {
+                    t = loop ? t % el.duration : Math.min(t, Math.max(0, el.duration - 0.25));
+                }
+                // Only seek if we're not already there (bfcache resume keeps it)
+                if (Math.abs((el.currentTime || 0) - t) > 0.75) {
+                    try { el.currentTime = t; } catch (e) { /* not seekable yet */ }
+                }
+            }
+            this.restoring[name] = false;
+            const p = el.play();
+            if (p && p.then) {
+                p.then(() => {
+                    if (window.persistentAudioManager) window.persistentAudioManager.hideAutoplayWarning();
+                }).catch(() => {
+                    if (window.persistentAudioManager) window.persistentAudioManager.onAutoplayBlocked();
+                });
+            }
+        };
+        if (!changed && el.readyState >= 1) {
+            apply();
+        } else {
+            el.addEventListener('loadedmetadata', apply, { once: true });
+            if (!changed && el.readyState === 0) el.load();
+        }
+    }
+
+    restoreFromSnapshot() {
+        const snap = this.readSnapshot() || {};
+        const s = this.settings;
+        if (s.rain.enabled) {
+            this.resumeTrack('rain', `/static/chatkada/sounds/${this.rainSounds[s.rain.intensity] || 'Rain.mp3'}`,
+                             snap.rain, s.rain.volume, true);
+            const rc = document.getElementById('rain-container');
+            if (rc) { rc.style.display = 'block'; this.updateRainEffect(); }
+        }
+        if (s.crowd.enabled) {
+            this.resumeTrack('crowd', `/static/chatkada/sounds/${this.crowdSound}`, snap.crowd, s.crowd.volume, true);
+        }
+        if (s.music.enabled) {
+            // Track identity is the file name (playlist order can be shuffled)
+            const file = (snap.music && snap.music.file) || s.music.file;
+            if (file) {
+                const idx = this.nostalgicSongs.findIndex(x => x.file === file);
+                if (idx >= 0) this.currentSongIndex = idx;
+            }
+            const song = this.currentSong();
+            if (song) {
+                const sameSong = snap.music && snap.music.file === song.file;
+                this.resumeTrack('music', this.songPath(song), sameSong ? snap.music : null, s.music.volume, false);
+            }
+        }
+        this.updateSongDisplay();
+    }
+
+    migrateLegacyMusicState() {
+        try {
+            const legacy = JSON.parse(localStorage.getItem('chayakada_music_state') || 'null');
+            localStorage.removeItem('chayakada_music_state');
+            localStorage.removeItem('chayakada_persistent_audio_state');
+            if (legacy && !this.settings.music.file && this.nostalgicSongs[legacy.currentSongIndex]) {
+                this.settings.music.file = this.nostalgicSongs[legacy.currentSongIndex].file;
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    initWebAudio() {
+        if (this.audioContext) return;
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -113,6 +308,7 @@ class EnhancedAudioController {
                     }
                 }
             });
+            if (this.audioContext.state === 'suspended') this.audioContext.resume().catch(() => {});
         } catch (error) {
             console.log('Web Audio API not supported, falling back to standard audio');
         }
@@ -189,9 +385,10 @@ class EnhancedAudioController {
         });
 
         document.getElementById('rain-volume')?.addEventListener('input', (e) => {
-            this.settings.rain.volume = e.target.value;
+            this.settings.rain.volume = Number(e.target.value);
             document.getElementById('rain-volume-display').textContent = e.target.value + '%';
-            this.updateRain();
+            if (this.audioElements.rain) this.audioElements.rain.volume = this.settings.rain.volume / 100;
+            this.saveSettings();
         });
 
         document.getElementById('rain-intensity')?.addEventListener('change', (e) => {
@@ -237,14 +434,31 @@ class EnhancedAudioController {
         });
 
         document.getElementById('crowd-volume')?.addEventListener('input', (e) => {
-            this.settings.crowd.volume = e.target.value;
+            this.settings.crowd.volume = Number(e.target.value);
             document.getElementById('crowd-volume-display').textContent = e.target.value + '%';
-            this.updateCrowd();
+            if (this.audioElements.crowd) this.audioElements.crowd.volume = this.settings.crowd.volume / 100;
+            this.saveSettings();
         });
 
         document.getElementById('music-shuffle')?.addEventListener('click', () => {
             this.shuffleSongs();
         });
+
+        // Nostalgic radio controls (previously had no listeners at all)
+        document.getElementById('music-toggle')?.addEventListener('change', (e) => {
+            this.settings.music.enabled = e.target.checked;
+            this.updateMusic();
+        });
+
+        document.getElementById('music-volume')?.addEventListener('input', (e) => {
+            this.settings.music.volume = Number(e.target.value);
+            document.getElementById('music-volume-display').textContent = e.target.value + '%';
+            if (this.audioElements.music) this.audioElements.music.volume = this.settings.music.volume / 100;
+            this.saveSettings();
+        });
+
+        document.getElementById('music-next')?.addEventListener('click', () => this.nextSong());
+        document.getElementById('music-prev')?.addEventListener('click', () => this.previousSong());
 
         // Music ended event
         this.audioElements.music?.addEventListener('ended', () => {
@@ -252,7 +466,7 @@ class EnhancedAudioController {
         });
 
         // User interaction to start audio context
-        document.addEventListener('click', () => {
+        document.addEventListener('pointerdown', () => {
             if (this.audioContext && this.audioContext.state === 'suspended') {
                 this.audioContext.resume();
             }
@@ -260,40 +474,30 @@ class EnhancedAudioController {
     }
 
     updateRain() {
-            const rain = this.audioElements.rain;
-            const rainContainer = document.getElementById('rain-container');
+        const rain = this.audioElements.rain;
+        const rainContainer = document.getElementById('rain-container');
+        if (!rain) return;
 
-            if(!rain) return;
-
-            if(this.settings.rain.enabled) {
-            const rainFile = this.rainSounds[this.settings.rain.intensity];
-            const rainPath = `/static/chatkada/sounds/${rainFile}`;
-
-            if (rain.src !== rainPath) {
-                rain.src = rainPath;
-            }
-
+        if (this.settings.rain.enabled) {
+            const rainFile = this.rainSounds[this.settings.rain.intensity] || 'Rain.mp3';
+            // keeps position when the source is unchanged (e.g. only volume moved)
+            this.setSrcIfChanged(rain, `/static/chatkada/sounds/${rainFile}`);
             rain.volume = this.settings.rain.volume / 100;
             rain.loop = true;
-
-            rain.play().catch(e => {
-                console.log('Rain audio play failed:', e);
-                console.log('Trying to play:', rainPath);
-            });
-
+            if (rain.paused) {
+                rain.play().catch(() => window.persistentAudioManager && window.persistentAudioManager.onAutoplayBlocked());
+            }
             if (rainContainer) {
                 rainContainer.style.display = 'block';
                 this.updateRainEffect();
             }
         } else {
             rain.pause();
-            rain.currentTime = 0; // Reset to beginning
-            if (rainContainer) {
-                rainContainer.style.display = 'none';
-            }
+            rain.currentTime = 0; // user switched it off: start fresh next time
+            if (rainContainer) rainContainer.style.display = 'none';
         }
-
         this.saveSettings();
+        this.savePlayback(true);
     }
 
     updateThunder() {
@@ -310,114 +514,76 @@ class EnhancedAudioController {
 
     updateCrowd() {
         const crowd = this.audioElements.crowd;
-
         if (!crowd) return;
 
         if (this.settings.crowd.enabled) {
-            const crowdPath = `/static/chatkada/sounds/${this.crowdSound}`;
-
-            if (crowd.src !== crowdPath) {
-                crowd.src = crowdPath;
-            }
-
+            this.setSrcIfChanged(crowd, `/static/chatkada/sounds/${this.crowdSound}`);
             crowd.volume = this.settings.crowd.volume / 100;
             crowd.loop = true;
-
-            crowd.play().catch(e => {
-                console.log('Crowd audio play failed:', e);
-                console.log('Trying to play:', crowdPath);
-            });
+            if (crowd.paused) {
+                crowd.play().catch(() => window.persistentAudioManager && window.persistentAudioManager.onAutoplayBlocked());
+            }
         } else {
             crowd.pause();
-            crowd.currentTime = 0; // Reset to beginning
+            crowd.currentTime = 0;
         }
-
         this.saveSettings();
+        this.savePlayback(true);
     }
 
     updateMusic() {
         const music = this.audioElements.music;
-
         if (!music) return;
 
         if (this.settings.music.enabled) {
             music.volume = this.settings.music.volume / 100;
-            this.playCurrentSong();
-            this.saveMusicState(); // Save state when enabling music
+            this.playCurrentSong(false);
         } else {
             music.pause();
-            music.currentTime = 0; // Reset to beginning
-            const currentSongElement = document.getElementById('current-song');
-            if (currentSongElement) {
-                currentSongElement.textContent = 'No song playing';
-            }
-            // Clear saved state when disabling
-            localStorage.removeItem('chayakada_music_state');
+            music.currentTime = 0;
         }
-
+        this.updateSongDisplay();
         this.saveSettings();
+        this.savePlayback(true);
     }
 
     randomizeInitialSong() {
         this.currentSongIndex = Math.floor(Math.random() * this.nostalgicSongs.length);
     }
 
-    playCurrentSong() {
-        if (this.nostalgicSongs.length === 0) return;
-
-        const currentSong = this.nostalgicSongs[this.currentSongIndex % this.nostalgicSongs.length];
+    // restart=true when the user picks another song; otherwise an already
+    // loaded song keeps its position.
+    playCurrentSong(restart = true) {
+        const song = this.currentSong();
         const music = this.audioElements.music;
+        if (!song || !music) return;
 
-        const musicPath = `/static/chatkada/sounds/${currentSong.file}`;
-        music.src = musicPath;
+        const changed = this.setSrcIfChanged(music, this.songPath(song));
+        if (restart && !changed) music.currentTime = 0;
         music.loop = false;
+        music.volume = this.settings.music.volume / 100;
+        this.settings.music.file = song.file;
 
-        music.play().then(() => {
-            // Save state after successfully starting playback
-            this.saveMusicState();
-        }).catch(e => {
-            console.log('Music play failed:', e);
-            console.log('Trying to play:', musicPath);
-        });
-
-        const currentSongElement = document.getElementById('current-song');
-        if (currentSongElement) {
-            currentSongElement.textContent = currentSong.name;
-        }
+        music.play().then(() => this.savePlayback(true))
+            .catch(() => window.persistentAudioManager && window.persistentAudioManager.onAutoplayBlocked());
+        this.updateSongDisplay();
+        this.saveSettings();
     }
 
     nextSong() {
         if (this.nostalgicSongs.length === 0) return;
-
         this.currentSongIndex = (this.currentSongIndex + 1) % this.nostalgicSongs.length;
-
-        if (this.settings.music.enabled) {
-            this.playCurrentSong();
-        } else {
-            // Just update the display even if music is off
-            const currentSongElement = document.getElementById('current-song');
-            if (currentSongElement) {
-                const currentSong = this.nostalgicSongs[this.currentSongIndex];
-                currentSongElement.textContent = currentSong.name;
-            }
-        }
+        this.settings.music.file = this.currentSong().file;
+        if (this.settings.music.enabled) this.playCurrentSong(true);
+        else { this.updateSongDisplay(); this.saveSettings(); }
     }
 
     previousSong() {
         if (this.nostalgicSongs.length === 0) return;
-
         this.currentSongIndex = (this.currentSongIndex - 1 + this.nostalgicSongs.length) % this.nostalgicSongs.length;
-
-        if (this.settings.music.enabled) {
-            this.playCurrentSong();
-        } else {
-            // Just update the display even if music is off
-            const currentSongElement = document.getElementById('current-song');
-            if (currentSongElement) {
-                const currentSong = this.nostalgicSongs[this.currentSongIndex];
-                currentSongElement.textContent = currentSong.name;
-            }
-        }
+        this.settings.music.file = this.currentSong().file;
+        if (this.settings.music.enabled) this.playCurrentSong(true);
+        else { this.updateSongDisplay(); this.saveSettings(); }
     }
 
     shuffleSongs() {
@@ -428,114 +594,10 @@ class EnhancedAudioController {
             const j = Math.floor(Math.random() * (i + 1));
             [this.nostalgicSongs[i], this.nostalgicSongs[j]] = [this.nostalgicSongs[j], this.nostalgicSongs[i]];
         }
-
-        // Reset to first song after shuffle
         this.currentSongIndex = 0;
-
-        if (this.settings.music.enabled) {
-            this.playCurrentSong();
-        } else {
-            // Just update the display even if music is off
-            const currentSongElement = document.getElementById('current-song');
-            if (currentSongElement) {
-                const currentSong = this.nostalgicSongs[this.currentSongIndex];
-                currentSongElement.textContent = currentSong.name;
-            }
-        }
-
-        console.log('Playlist shuffled!');
-    }
-
-    saveMusicState() {
-        try {
-            const musicState = {
-                currentSongIndex: this.currentSongIndex,
-                currentTime: this.audioElements.music?.currentTime || 0,
-                enabled: this.settings.music.enabled,
-                volume: this.settings.music.volume,
-                timestamp: Date.now()
-            };
-            localStorage.setItem('chayakada_music_state', JSON.stringify(musicState));
-            
-            // Trigger persistent audio manager save
-            if (window.persistentAudioManager) {
-                window.persistentAudioManager.saveCompleteState();
-            }
-        } catch (e) {
-            console.log('Failed to save music state:', e);
-        }
-    }
-
-
-    // Restore music playback state from localStorage
-    restoreMusicState() {
-        try {
-            const savedState = localStorage.getItem('chayakada_music_state');
-            if (!savedState) return false;
-
-            const musicState = JSON.parse(savedState);
-
-            // Check if state is recent (within last 10 minutes)
-            const timeDiff = Date.now() - (musicState.timestamp || 0);
-            if (timeDiff > 600000) { // 10 minutes
-                localStorage.removeItem('chayakada_music_state');
-                return false;
-            }
-
-            // Restore state
-            this.currentSongIndex = musicState.currentSongIndex || 0;
-            this.settings.music.enabled = musicState.enabled || false;
-            this.settings.music.volume = musicState.volume || 25;
-
-            // Update UI
-            const musicToggle = document.getElementById('music-toggle');
-            if (musicToggle) {
-                musicToggle.checked = this.settings.music.enabled;
-            }
-
-            const musicVolume = document.getElementById('music-volume');
-            if (musicVolume) {
-                musicVolume.value = this.settings.music.volume;
-                document.getElementById('music-volume-display').textContent = this.settings.music.volume + '%';
-            }
-
-            // Restore playback if music was enabled
-            if (this.settings.music.enabled) {
-                const music = this.audioElements.music;
-                if (music) {
-                    const currentSong = this.nostalgicSongs[this.currentSongIndex % this.nostalgicSongs.length];
-                    const musicPath = `/static/chatkada/sounds/${currentSong.file}`;
-                    music.src = musicPath;
-                    music.volume = this.settings.music.volume / 100;
-                    music.currentTime = musicState.currentTime || 0;
-                    music.loop = false;
-
-                    // Play with user interaction requirement handling
-                    const playPromise = music.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(e => {
-                            console.log('Auto-play prevented, waiting for user interaction');
-                            // Add one-time click listener to resume
-                            document.addEventListener('click', () => {
-                                if (this.settings.music.enabled) {
-                                    music.play().catch(err => console.log('Play failed:', err));
-                                }
-                            }, { once: true });
-                        });
-                    }
-
-                    const currentSongElement = document.getElementById('current-song');
-                    if (currentSongElement) {
-                        currentSongElement.textContent = currentSong.name;
-                    }
-                }
-            }
-
-            return true;
-        } catch (e) {
-            console.log('Failed to restore music state:', e);
-            return false;
-        }
+        this.settings.music.file = this.currentSong().file;
+        if (this.settings.music.enabled) this.playCurrentSong(true);
+        else { this.updateSongDisplay(); this.saveSettings(); }
     }
 
     // Lightning and Thunder System - FIXED
@@ -927,6 +989,7 @@ class EnhancedAudioController {
     }
 
     enableRealisticMode() {
+        this.initWebAudio();
         // Apply muffled effect using Web Audio API
         if (this.audioContext && this.filterNodes) {
             Object.keys(this.filterNodes).forEach(key => {
@@ -1062,6 +1125,14 @@ class EnhancedAudioController {
         safeUpdate('crowd-volume', this.settings.crowd.volume);
         safeUpdate('crowd-volume-display', this.settings.crowd.volume + '%', 'text');
 
+        const rmBtn = document.getElementById('realistic-mode-btn');
+        if (rmBtn) {
+            rmBtn.innerHTML = this.realisticMode
+                ? '<i class="fas fa-magic"></i> Disable Realistic Mode'
+                : '<i class="fas fa-magic"></i> Enable Realistic Mode';
+            rmBtn.classList.toggle('active', !!this.realisticMode);
+        }
+
         safeUpdate('music-toggle', this.settings.music.enabled, 'checked');
         safeUpdate('music-volume', this.settings.music.volume);
         safeUpdate('music-volume-display', this.settings.music.volume + '%', 'text');
@@ -1081,34 +1152,30 @@ class EnhancedAudioController {
     }
 
     saveSettings() {
+        const song = this.currentSong();
+        if (song) this.settings.music.file = song.file;
         const saveData = {
             ...this.settings,
             realisticMode: this.realisticMode
         };
         localStorage.setItem('chayakada-audio-settings', JSON.stringify(saveData));
-        
-        // Trigger persistent audio manager save
-        if (window.persistentAudioManager) {
-            window.persistentAudioManager.saveCompleteState();
-        }
     }
 
     loadSettings() {
-        const saved = localStorage.getItem('chayakada-audio-settings');
-        if (saved) {
+        try {
+            const saved = localStorage.getItem('chayakada-audio-settings');
+            if (!saved) return;
             const savedData = JSON.parse(saved);
-            this.settings = { ...this.settings, ...savedData };
-
-            if (savedData.realisticMode !== undefined) {
-                this.realisticMode = savedData.realisticMode;
-
-                setTimeout(() => {
-                    if (this.realisticMode) {
-                        this.enableRealisticMode();
-                    }
-                    this.updateControls();
-                }, 1000);
+            ['rain', 'thunder', 'lightning', 'crowd', 'music'].forEach(k => {
+                if (savedData[k]) this.settings[k] = { ...this.settings[k], ...savedData[k] };
+            });
+            if (savedData.realisticMode !== undefined) this.realisticMode = !!savedData.realisticMode;
+            if (this.settings.music.file) {
+                const idx = this.nostalgicSongs.findIndex(x => x.file === this.settings.music.file);
+                if (idx >= 0) this.currentSongIndex = idx;
             }
+        } catch (e) {
+            console.warn('Bad audio settings in storage, using defaults', e);
         }
     }
 }
