@@ -2,20 +2,26 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.models import User
+from django.contrib.auth.forms import AuthenticationForm
 from django.contrib import messages
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
+from django.views.decorators.http import require_POST
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.db.models import Q, Count, Sum
 from django.db import transaction
 from django.urls import reverse
+from django.core.cache import cache
 from datetime import date, timedelta
+import time
 from .models import (
     Item, Purchase, ChatMessage, UserProfile, ChatRoom, 
     BenchInvite, DailyChallenge, CoinTransaction, UserChatHistory,
     StrangerChatQueue
 )
 from .forms import SimpleUserCreationForm
+from .chat_utils import display_name, format_time, iso_local, is_anonymous_room
 import json
 import uuid
 # views.py
@@ -24,6 +30,16 @@ from django.contrib.auth.models import User
 import requests as req_lib
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+from . import login_throttle
+
+# Login rate limiting (see chatkada/login_throttle.py)
+MAX_LOGIN_ATTEMPTS = login_throttle.MAX_ATTEMPTS
+LOGIN_LOCKOUT_DURATION = login_throttle.LOCKOUT_SECONDS
+MAX_PURCHASE_QUANTITY = 10
+LOGIN_SCOPE = 'site'
+get_client_ip = login_throttle.get_client_ip
+
 
 def home(request):
     return render(request, 'home.html')
@@ -79,17 +95,78 @@ def custom_logout(request):
     messages.success(request, f'Goodbye {username}! You have been logged out successfully.')
     return redirect('home')
 
+def login_view(request):
+    """Custom login view that checks for banned users and rate limits"""
+    if request.user.is_authenticated:
+        return redirect('kada')
+    
+    if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
+        username = request.POST.get('username', '').strip()
+        password = request.POST.get('password', '')
+        ip_address = get_client_ip(request)
+        
+        # Check rate limiting
+        if login_throttle.is_locked(LOGIN_SCOPE, username, ip_address):
+            messages.error(
+                request,
+                f"Too many failed login attempts. Please try again in {LOGIN_LOCKOUT_DURATION // 60} minutes."
+            )
+            return render(request, 'registration/login.html', {'form': form})
+        
+        # Check if user exists and is banned (only after password verified to avoid enumeration)
+        try:
+            user_obj = User.objects.get(username=username)
+            if not user_obj.is_active:
+                # Verify password before showing ban message (prevent account enumeration)
+                if user_obj.check_password(password):
+                    messages.error(request, 'Your account has been banned. Please contact support.')
+                    return render(request, 'registration/login.html', {'form': form})
+                # If password wrong, fall through to generic error below
+        except User.DoesNotExist:
+            pass  # Will fail authentication below
+        
+        # Authenticate
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            login_throttle.record_success(LOGIN_SCOPE, username, ip_address)
+            messages.success(request, f'Welcome back, {username}!')
+            
+            # Validate next_url to prevent open redirect
+            next_url = request.GET.get('next', 'kada')
+            if next_url and next_url != 'kada':
+                if url_has_allowed_host_and_scheme(
+                    url=next_url,
+                    allowed_hosts={request.get_host()},
+                    require_https=request.is_secure()
+                ):
+                    return redirect(next_url)
+            return redirect('kada')
+        else:
+            login_throttle.record_failure(LOGIN_SCOPE, username, ip_address)
+            messages.error(request, 'Invalid username or password.')
+            return render(request, 'registration/login.html', {'form': form})
+    else:
+        form = AuthenticationForm()
+    
+    return render(request, 'registration/login.html', {'form': form})
+
 @login_required
+@ensure_csrf_cookie
 def kada(request):
-    items = Item.objects.filter(available=True)
+    items = Item.objects.filter(available=True).order_by('sort_order', 'category', 'name')
     chai_items = items.filter(category='chai')
     snack_items = items.filter(category='snacks')
     sweet_items = items.filter(category='sweets')
+    gift_items = items.filter(category='gifts')  # Include gifts
     
     context = {
         'chai_items': chai_items,
         'snack_items': snack_items,
         'sweet_items': sweet_items,
+        'gift_items': gift_items,
         'user_coins': request.user.userprofile.coins
     }
     return render(request, 'kada.html', context)
@@ -101,24 +178,28 @@ def profile(request):
 
 
 @login_required
+@transaction.atomic
 def check_daily_login(request):
-    """Check and reward daily login bonus"""
-    profile = request.user.userprofile
-    today = date.today()
+    """Check and reward daily login bonus (once per IST day, consecutive-day streak)"""
+    # Row lock so a double request can't award the bonus twice
+    profile = UserProfile.objects.select_for_update().get(user=request.user)
+    today = timezone.localdate()
     
     # Check if user already got login bonus today
     if profile.last_login_date != today:
         # Award daily login bonus
         coins_earned = 25
+        previous_login_date = profile.last_login_date
+
+        # Update streak BEFORE overwriting last_login_date (consecutive IST days)
+        if previous_login_date == today - timedelta(days=1):
+            profile.login_streak = (profile.login_streak or 0) + 1
+        else:
+            profile.login_streak = 1
+
         profile.coins += coins_earned
         profile.total_coins_earned += coins_earned
         profile.last_login_date = today
-        
-        # Update streak
-        if profile.last_login_date == today - timedelta(days=1):
-            profile.login_streak += 1
-        else:
-            profile.login_streak = 1
         
         profile.save()
         
@@ -162,7 +243,7 @@ def record_chat_friend(request):
         try:
             friend = User.objects.get(username=friend_username)
             profile = request.user.userprofile
-            today = date.today()
+            today = timezone.localdate()
             
             # Reset daily count if it's a new day
             if profile.friends_challenge_date != today:
@@ -241,7 +322,7 @@ def record_chat_friend(request):
 def coin_center(request):
     """Dedicated coin management and challenge center"""
     profile = request.user.userprofile
-    today = date.today()
+    today = timezone.localdate()
     
     # Get today's challenges status
     daily_login_completed = DailyChallenge.objects.filter(
@@ -314,7 +395,7 @@ def coin_center(request):
 def get_coin_progress(request):
     """API endpoint for coin progress (for navigation bar)"""
     profile = request.user.userprofile
-    today = date.today()
+    today = timezone.localdate()
     
     # Check challenge status
     daily_login_completed = DailyChallenge.objects.filter(
@@ -344,46 +425,114 @@ def get_coin_progress(request):
     })
 
 @login_required
-@csrf_exempt
+@require_POST
 def buy_item(request):
-    if request.method == 'POST':
+    """Purchase an item from the shop with secure validation"""
+    try:
         data = json.loads(request.body)
-        item_id = data.get('item_id')
-        quantity = data.get('quantity', 1)
-        
-        try:
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request format'
+        }, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request format'
+        }, status=400)
+    
+    item_id = data.get('item_id')
+    quantity = data.get('quantity', 1)
+    
+    # Validate item_id
+    if not item_id:
+        return JsonResponse({
+            'success': False,
+            'message': 'Item ID is required'
+        }, status=400)
+    
+    # Validate quantity: must be a real integer between 1 and MAX_PURCHASE_QUANTITY.
+    # Reject bools, floats (1.5 / 2.0), numeric strings with junk, etc. so the
+    # client can never get fractional or negative totals.
+    if isinstance(quantity, bool):
+        quantity = None
+    elif isinstance(quantity, str) and quantity.strip().isdigit():
+        quantity = int(quantity.strip())
+    if not isinstance(quantity, int) or isinstance(quantity, bool):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid quantity'
+        }, status=400)
+    if quantity < 1 or quantity > MAX_PURCHASE_QUANTITY:
+        return JsonResponse({
+            'success': False,
+            'message': f'Quantity must be between 1 and {MAX_PURCHASE_QUANTITY}'
+        }, status=400)
+
+    # item_id must be an integer primary key
+    if isinstance(item_id, bool) or not (isinstance(item_id, int) or (isinstance(item_id, str) and item_id.isdigit())):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid item ID'
+        }, status=400)
+    
+    try:
+        # Use atomic transaction with select_for_update to prevent race conditions
+        with transaction.atomic():
             item = Item.objects.get(id=item_id)
-            user_profile = request.user.userprofile
+            
+            # Only allow available items
+            if not item.available:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Item is not available for purchase'
+                }, status=400)
+            
+            # Lock user profile row to prevent concurrent purchases
+            user_profile = UserProfile.objects.select_for_update().get(user=request.user)
+            
             total_price = item.price * quantity
             
-            if user_profile.coins >= total_price:
-                user_profile.coins -= total_price
-                user_profile.save()
-                
-                Purchase.objects.create(
-                    user=request.user,
-                    item=item,
-                    quantity=quantity,
-                    total_price=total_price
-                )
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': f'Enjoyed {item.name}! {item.emoji}',
-                    'coins': user_profile.coins
-                })
-            else:
+            # Check sufficient coins
+            if total_price < 0 or user_profile.coins < total_price:
                 return JsonResponse({
                     'success': False,
                     'message': 'Not enough coins!'
-                })
-        except Item.DoesNotExist:
+                }, status=400)
+            
+            # Deduct coins
+            user_profile.coins -= total_price
+            user_profile.save()
+            
+            # Record purchase
+            Purchase.objects.create(
+                user=request.user,
+                item=item,
+                quantity=quantity,
+                total_price=total_price
+            )
+            
             return JsonResponse({
-                'success': False,
-                'message': 'Item not found!'
+                'success': True,
+                'message': f'Enjoyed {item.name}! {item.emoji}',
+                'coins': user_profile.coins
             })
-    
-    return JsonResponse({'success': False, 'message': 'Invalid request'})
+            
+    except Item.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Item not found!'
+        }, status=404)
+    except UserProfile.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'User profile not found!'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': 'An error occurred'
+        }, status=500)
 
 # ========== NEW ADVANCED CHAT FEATURES ==========
 
@@ -423,13 +572,13 @@ def find_chat(request):
                     room=available_room,
                     user=request.user,
                     message_type='system',
-                    content=f"{request.user.username} joined the chat"
+                    content="A stranger joined the chat"
                 )
                 return redirect('chat_room', room_id=available_room.room_id)
             else:
                 # Create new stranger room
                 new_room = ChatRoom.objects.create(
-                    name=f"Stranger Chat {timezone.now().strftime('%H:%M')}",
+                    name=f"Stranger Chat {timezone.localtime().strftime('%H:%M')}",
                     room_type='stranger',
                     created_by=request.user,
                     expires_at=timezone.now() + timedelta(hours=1)  # Add expiration
@@ -447,15 +596,21 @@ def find_chat(request):
             # Create private bench
             new_room = ChatRoom.objects.create(
                 name=f"Private Bench: {bench_name}",
-                bench_name=bench_name,
+                bench_name=bench_name,  # Set bench_name field
                 room_type='private_bench',
                 created_by=request.user,
-                max_users=4  # Allow up to 4 people in private benches
+                max_users=4
             )
             new_room.participants.add(request.user)
             
             messages.success(request, f'Private bench "{bench_name}" created successfully!')
             return redirect('chat_room', room_id=new_room.room_id)
+    
+    # Get online users count (excluding current user)
+    online_users_count = UserProfile.objects.filter(
+        is_online=True,
+        last_activity__gte=timezone.now() - timedelta(minutes=5)
+    ).exclude(user=request.user).count()
     
     # Get user's active benches (private benches)
     user_benches = ChatRoom.objects.filter(
@@ -485,28 +640,40 @@ def find_chat(request):
     
     return render(request, 'find_chat.html', {
         'user_benches': user_benches,
-        'user_stranger_chats': all_user_stranger_chats
+        'user_stranger_chats': all_user_stranger_chats,
+        'online_users_count': online_users_count,  # Add online count
     })
 
 @login_required
 def create_private_bench(request):
     """Create a new private bench"""
     if request.method == 'POST':
-        bench_name = request.POST.get('bench_name')
-        if bench_name:
-            new_room = ChatRoom.objects.create(
-                name=bench_name,
-                room_type='private_bench',
-                created_by=request.user,
-                max_users=4  # Allow up to 4 people in private benches
-            )
-            new_room.participants.add(request.user)
-            messages.success(request, f'Private bench "{bench_name}" created successfully!')
-            return redirect('chat_room', room_id=new_room.room_id)
+        bench_name = request.POST.get('bench_name', '').strip()
+        
+        if not bench_name:
+            messages.error(request, 'Please enter a bench name.')
+            return redirect('find_chat')
+        
+        if len(bench_name) > 50:
+            messages.error(request, 'Bench name must be 50 characters or less.')
+            return redirect('find_chat')
+        
+        new_room = ChatRoom.objects.create(
+            name=f"Private Bench: {bench_name}",
+            bench_name=bench_name,  # Set bench_name field
+            room_type='private_bench',
+            created_by=request.user,
+            max_users=4
+        )
+        new_room.participants.add(request.user)
+        messages.success(request, f'Private bench "{bench_name}" created successfully!')
+        return redirect('chat_room', room_id=new_room.room_id)
     
+    messages.error(request, 'Invalid request.')
     return redirect('find_chat')
 
 @login_required
+@ensure_csrf_cookie
 def chat_room(request, room_id):
     """Main chat room view"""
     room = get_object_or_404(ChatRoom, room_id=room_id, is_active=True)
@@ -516,19 +683,39 @@ def chat_room(request, room_id):
         messages.error(request, 'You are not a participant in this room.')
         return redirect('find_chat')
     
-    # Clean up expired messages
+    # Clean up expired messages (only for stranger chats with expiry)
     ChatMessage.objects.filter(
         room=room,
-        expires_at__lt=timezone.now()
+        expires_at__lt=timezone.now(),
+        expires_at__isnull=False
     ).update(is_deleted=True)
     
-    # Get non-expired messages
-    chat_messages = ChatMessage.objects.filter(
-        room=room,
-        is_deleted=False,
-        expires_at__gt=timezone.now()
-    ).select_related('user', 'shared_item').order_by('timestamp')[:50]
+    # Get non-deleted messages
+    # For stranger chats: only show non-expired messages
+    # For benches/theatre: show all messages (no expiry)
+    if room.room_type == 'stranger':
+        chat_messages = ChatMessage.objects.filter(
+            room=room,
+            is_deleted=False,
+            expires_at__gt=timezone.now()
+        ).select_related('user', 'shared_item').order_by('timestamp')[:50]
+    else:
+        # Benches and theatre don't expire messages
+        chat_messages = ChatMessage.objects.filter(
+            room=room,
+            is_deleted=False
+        ).select_related('user', 'shared_item').order_by('timestamp')[:50]
     
+    # Per-viewer display data: stranger chats are anonymous ('You'/'Stranger'),
+    # times are rendered in IST exactly like the live websocket messages.
+    chat_messages = list(chat_messages)
+    for m in chat_messages:
+        m.display_name = ('System' if m.message_type == 'system'
+                          else display_name(m.user, room, request.user))
+        m.is_own = m.user_id == request.user.id
+        m.time_display = format_time(m.timestamp)
+        m.iso_time = iso_local(m.timestamp)
+
     # Get shareable items user has purchased
     shareable_items = Purchase.objects.filter(
         user=request.user,
@@ -538,10 +725,12 @@ def chat_room(request, room_id):
     # Get invite link if user is room creator and it's a private bench
     invite_link = None
     if room.created_by == request.user and room.room_type == 'private_bench':
+        # Get existing active invite (don't create on every page load)
         active_invite = BenchInvite.objects.filter(
             room=room,
             status='active'
         ).first()
+        
         if active_invite and active_invite.is_valid():
             invite_link = request.build_absolute_uri(
                 reverse('join_bench', kwargs={'invite_code': active_invite.invite_code})
@@ -556,11 +745,12 @@ def chat_room(request, room_id):
     
     return render(request, 'chat_room.html', {
         'room': room,
-        'messages': chat_messages,
+        'chat_messages': chat_messages,
         'shareable_items': shareable_items,
         'room_id': str(room_id),
         'invite_link': invite_link,
         'is_room_creator': room.created_by == request.user,
+        'can_invite': room.created_by == request.user and room.room_type == 'private_bench',
         'time_remaining': time_remaining
     })
 @login_required
@@ -599,10 +789,12 @@ def send_chat_message(request):
                 'success': True,
                 'message': {
                     'id': message.id,
-                    'user': message.user.username,
+                    'user': display_name(message.user, room, request.user),
+                    'is_own': True,
                     'content': message.content,
                     'message_type': message.message_type,
-                    'timestamp': message.timestamp.isoformat(),
+                    'timestamp': iso_local(message.timestamp),
+                    'time_display': format_time(message.timestamp),
                 }
             })
             
@@ -643,7 +835,8 @@ def handle_item_sharing(request, room, shared_item_id):
                 'success': True,
                 'message': {
                     'id': message.id,
-                    'user': message.user.username,
+                    'user': display_name(message.user, room, request.user),
+                    'is_own': True,
                     'content': f"shared {purchase.item.name} {purchase.item.emoji}",
                     'message_type': 'shared_item',
                     'shared_item': {
@@ -704,10 +897,12 @@ def get_chat_messages(request, room_id):
         for msg in reversed(messages):
             message_data = {
                 'id': msg.id,
-                'user': msg.user.username,
+                'user': display_name(msg.user, room, request.user),
+                'is_own': msg.user_id == request.user.id,
                 'content': msg.content,
                 'message_type': msg.message_type,
-                'timestamp': msg.timestamp.isoformat(),
+                'timestamp': iso_local(msg.timestamp),
+                'time_display': format_time(msg.timestamp),
             }
             
             # Add shared item data if applicable
@@ -824,7 +1019,8 @@ def accept_invitation(request, invitation_id):
         room=room,
         user=request.user,
         message_type='system',
-        content=f"{request.user.username} joined the chat"
+        content=("A stranger joined the chat" if is_anonymous_room(room)
+                 else f"{request.user.username} joined the chat")
     )
     
     messages.success(request, 'Invitation accepted! Welcome to the chat.')
@@ -859,7 +1055,8 @@ def leave_chat(request, room_id):
             room=room,
             user=request.user,
             message_type='system',
-            content=f"{request.user.username} left the chat"
+            content=("Stranger left the chat" if is_anonymous_room(room)
+                     else f"{request.user.username} left the chat")
         )
         
         # If room is empty, deactivate it
@@ -949,16 +1146,17 @@ def create_bench_invite(request, room_id):
             })
         
         if request.method == 'POST':
-            max_uses = int(request.POST.get('max_uses', 10))
-            
-            # Handle expiration in minutes (new) or days (legacy)
-            expires_in_minutes = request.POST.get('expires_in_minutes')
-            
-            if expires_in_minutes:
-                expiration_delta = timedelta(minutes=int(expires_in_minutes))
-            else:
-                expires_in_days = int(request.POST.get('expires_in_days', 7))
-                expiration_delta = timedelta(days=expires_in_days)
+            try:
+                max_uses = min(max(int(request.POST.get('max_uses', 10)), 1), 50)
+                # Handle expiration in minutes (new) or days (legacy); clamp to sane ranges
+                expires_in_minutes = request.POST.get('expires_in_minutes')
+                if expires_in_minutes:
+                    expiration_delta = timedelta(minutes=min(max(int(expires_in_minutes), 1), 60 * 24 * 30))
+                else:
+                    expires_in_days = min(max(int(request.POST.get('expires_in_days', 7)), 1), 30)
+                    expiration_delta = timedelta(days=expires_in_days)
+            except (TypeError, ValueError):
+                return JsonResponse({'success': False, 'error': 'Invalid invite options'}, status=400)
             
             # Create new invite
             invite = BenchInvite.objects.create(
@@ -968,7 +1166,7 @@ def create_bench_invite(request, room_id):
                 expires_at=timezone.now() + expiration_delta
             )
             
-            # Build full URL
+            # Build full URL using request for proper scheme and host
             invite_url = request.build_absolute_uri(
                 reverse('join_bench', kwargs={'invite_code': invite.invite_code})
             )
@@ -977,7 +1175,7 @@ def create_bench_invite(request, room_id):
                 'success': True,
                 'invite_url': invite_url,
                 'invite_code': invite.invite_code,
-                'expires_at': invite.expires_at.strftime('%Y-%m-%d %H:%M'),
+                'expires_at': timezone.localtime(invite.expires_at).strftime('%Y-%m-%d %H:%M IST'),
                 'max_uses': invite.max_uses,
                 'current_uses': invite.current_uses
             })
@@ -1096,6 +1294,27 @@ def handle_stranger_chat_request(request):
                 joined_at__lt=timezone.now() - timedelta(minutes=10)
             ).delete()
             
+            # Check if user has an ACTIVE, RECENT match (within last 2 minutes)
+            # This prevents immediate reconnection but allows new searches after a brief period
+            existing_match = ChatRoom.objects.filter(
+                participants=request.user,
+                room_type='stranger',
+                is_active=True,
+                created_at__gte=timezone.now() - timedelta(minutes=2)  # Only within 2 minutes
+            ).first()
+            
+            if existing_match:
+                # User was matched recently! Remove from queue and redirect
+                StrangerChatQueue.objects.filter(user=request.user).delete()
+                profile.looking_for_stranger_chat = False
+                profile.save()
+                
+                return JsonResponse({
+                    'status': 'matched',
+                    'message': 'Connected with a stranger!',
+                    'room_id': str(existing_match.room_id)
+                })
+            
             # Check if user already in queue
             queue_entry, created = StrangerChatQueue.objects.get_or_create(
                 user=request.user,
@@ -1107,19 +1326,25 @@ def handle_stranger_chat_request(request):
                 queue_entry.last_attempt = timezone.now()
                 queue_entry.save()
             
-            # Find available online users
+            # Try to match with another user in queue
+            matched_user_queue = find_queue_match(request.user)
+            
+            if matched_user_queue:
+                # Found a match! Create room and notify both users
+                chat_room = create_stranger_chat_room(request, matched_user_queue)
+                return JsonResponse({
+                    'status': 'matched',
+                    'message': 'Connected with a stranger!',
+                    'room_id': str(chat_room.room_id)
+                })
+            
+            # No match yet - check for available online users
             available_users = find_available_online_users(request.user)
             
-            if not available_users:
+            if not available_users.exists():
                 return handle_no_users_available(request, queue_entry)
             
-            # Try to match with another user in queue
-            matched_user = find_queue_match(request.user)
-            
-            if matched_user:
-                return create_stranger_chat_room(request, matched_user)
-            else:
-                return wait_for_match(request, queue_entry, available_users)
+            return wait_for_match(request, queue_entry, available_users)
                 
     except Exception as e:
         return handle_connection_error(request, str(e))
@@ -1132,25 +1357,22 @@ def find_available_online_users(current_user):
         userprofile__last_activity__gte=timezone.now() - timedelta(minutes=5)
     ).exclude(
         id=current_user.id
-    ).exclude(
-        # Exclude users already in active chats
-        chat_rooms__room_type='stranger',
-        chat_rooms__is_active=True
     )
 
 def find_queue_match(current_user):
     """Find another user in the stranger chat queue to match with"""
+    # Find someone who's been waiting (not the current user)
     return StrangerChatQueue.objects.filter(
-        joined_at__lt=timezone.now() - timedelta(seconds=30)  # Wait 30 seconds before matching
+        joined_at__lt=timezone.now() - timedelta(seconds=5)  # Wait 5 seconds minimum
     ).exclude(user=current_user).first()
 
 def create_stranger_chat_room(request, matched_user_queue):
-    """Create a chat room for matched strangers"""
+    """Create a chat room for matched strangers and return the room"""
     matched_user = matched_user_queue.user
     
     # Create chat room with max_users=2 for 1-on-1 secure chat
     chat_room = ChatRoom.objects.create(
-        name=f"Stranger Chat {timezone.now().strftime('%H:%M')}",
+        name=f"Stranger Chat {timezone.localtime().strftime('%H:%M')}",
         room_type='stranger',
         created_by=request.user,
         max_users=2,  # Secure 1-on-1 chat
@@ -1171,7 +1393,7 @@ def create_stranger_chat_room(request, matched_user_queue):
         profile.looking_for_stranger_chat = False
         profile.save()
     
-    # Send system messages
+    # Send system message
     ChatMessage.objects.create(
         room=chat_room,
         user=request.user,
@@ -1179,12 +1401,7 @@ def create_stranger_chat_room(request, matched_user_queue):
         content=f"Connected with a stranger! Say hello! 👋"
     )
     
-    # Return JSON response for AJAX
-    return JsonResponse({
-        'status': 'matched',
-        'message': 'Connected with a stranger!',
-        'room_id': str(chat_room.room_id)
-    })
+    return chat_room
 
 def wait_for_match(request, queue_entry, available_users):
     """Handle waiting state when no immediate match is available"""
@@ -1264,54 +1481,19 @@ def cancel_stranger_search(request):
     return redirect('find_chat')
 
 @login_required
-def check_match_status(request):
-    """API endpoint to check if a match has been found"""
-    try:
-        queue_entry = StrangerChatQueue.objects.get(user=request.user)
-        
-        # Check if user has been matched (removed from queue but has active chat)
-        active_chat = ChatRoom.objects.filter(
-            participants=request.user,
-            room_type='stranger',
-            is_active=True,
-            created_at__gte=queue_entry.joined_at
-        ).first()
-        
-        if active_chat:
-            return JsonResponse({
-                'status': 'matched',
-                'room_id': str(active_chat.room_id),
-                'message': 'Match found! Redirecting to chat...'
-            })
-        
-        # Still waiting
-        wait_time = (timezone.now() - queue_entry.joined_at).total_seconds()
-        online_count = find_available_online_users(request.user).count()
-        
-        if wait_time > 300:  # 5 minutes timeout
-            return handle_timeout(request, queue_entry)
-        
-        return JsonResponse({
-            'status': 'waiting',
-            'wait_time': int(wait_time),
-            'online_count': online_count,
-            'message': f'Searching... {online_count} users online'
-        })
-        
-    except StrangerChatQueue.DoesNotExist:
-        return JsonResponse({
-            'status': 'not_searching',
-            'message': 'Not currently searching'
-        })
+
+# check_match_status removed - was unused and returning incorrect 'not_searching' status
 
 @login_required
 def get_online_status(request):
-    from .models import UserProfile
+    """Get online users count"""
     online_users = UserProfile.objects.filter(
         is_online=True,
-        last_activity__gte=timezone.now() - timezone.timedelta(minutes=5)
+        last_activity__gte=timezone.now() - timedelta(minutes=5)
     ).exclude(user=request.user).count()
-    in_queue = False  # Alternatively, check StrangerChatQueue for the user
+    
+    in_queue = StrangerChatQueue.objects.filter(user=request.user).exists()
+    
     return JsonResponse({
         "online_users": online_users,
         "in_queue": in_queue,
@@ -1396,7 +1578,7 @@ def assign_challenge(request):
         if form.is_valid():
             challenge_type = form.cleaned_data["challenge_type"]
             coins_earned = form.cleaned_data["coins_earned"]
-            today = timezone.now().date()
+            today = timezone.localdate()
             created = 0
             for user in User.objects.all():
                 challenges = DailyChallenge.objects.filter(user=user, challenge_type=challenge_type, completed_date=today)
@@ -1414,6 +1596,100 @@ def assign_challenge(request):
         form = AssignChallengeForm()
     return render(request, "custom_admin/assign_challenges.html", {"form": form})
 
+
+@staff_member_required
+def analytics_dashboard(request):
+    """Staff-only analytics dashboard with key metrics"""
+    from django.db.models import Count, Avg, Sum
+    from datetime import timedelta
+    from .models import AnalyticsEvent, Purchase, ChatRoom, CoinTransaction
+    
+    now = timezone.now()
+    today = timezone.localdate(now)
+    yesterday = today - timedelta(days=1)
+    week_ago = now - timedelta(days=7)
+    
+    # Daily Active Users
+    dau_today = User.objects.filter(userprofile__last_activity__gte=today).count()
+    dau_yesterday = User.objects.filter(
+        userprofile__last_activity__gte=yesterday,
+        userprofile__last_activity__lt=today
+    ).count()
+    dau_change = ((dau_today - dau_yesterday) / dau_yesterday * 100) if dau_yesterday > 0 else 0
+    
+    # Signups
+    signups_today = AnalyticsEvent.objects.filter(event_type='signup', timestamp__gte=today).count()
+    signups_7days = AnalyticsEvent.objects.filter(event_type='signup', timestamp__gte=week_ago).count()
+    
+    # Matching metrics
+    searches = AnalyticsEvent.objects.filter(event_type='stranger_search_started', timestamp__gte=week_ago).count()
+    matches = AnalyticsEvent.objects.filter(event_type='stranger_match_made', timestamp__gte=week_ago).count()
+    match_rate = (matches / searches * 100) if searches > 0 else 0
+    
+    # Messaging
+    total_messages = AnalyticsEvent.objects.filter(event_type='message_sent', timestamp__gte=week_ago).count()
+    active_chats = ChatRoom.objects.filter(is_active=True, created_at__gte=week_ago).count()
+    avg_messages_per_chat = (total_messages / active_chats) if active_chats > 0 else 0
+    
+    # Room usage
+    benches_created = AnalyticsEvent.objects.filter(event_type='bench_created', timestamp__gte=week_ago).count()
+    theatres_created = AnalyticsEvent.objects.filter(event_type='theatre_created', timestamp__gte=week_ago).count()
+    avg_participants = ChatRoom.objects.filter(is_active=True).annotate(
+        participant_count=Count('participants')
+    ).aggregate(Avg('participant_count'))['participant_count__avg'] or 0
+    
+    # Coin economy
+    coins_earned = CoinTransaction.objects.filter(timestamp__gte=week_ago, amount__gt=0).aggregate(Sum('amount'))['amount__sum'] or 0
+    coins_spent = abs(CoinTransaction.objects.filter(timestamp__gte=week_ago, amount__lt=0).aggregate(Sum('amount'))['amount__sum'] or 0)
+    coin_balance = coins_earned - coins_spent
+    spending_ratio = (coins_spent / coins_earned * 100) if coins_earned > 0 else 0
+    
+    # Top items
+    top_items = Purchase.objects.filter(timestamp__gte=week_ago).values(
+        'item__name', 'item__emoji'
+    ).annotate(purchase_count=Count('id'), total_revenue=Sum('total_price')).order_by('-purchase_count')[:5]
+    
+    top_items_formatted = [
+        {
+            'name': item['item__name'],
+            'emoji': item['item__emoji'],
+            'purchase_count': item['purchase_count'],
+            'total_revenue': item['total_revenue']
+        }
+        for item in top_items
+    ]
+    
+    # Recent events
+    recent_events = AnalyticsEvent.objects.select_related('user').order_by('-timestamp')[:50]
+    
+    metrics = {
+        'daily_active_users': dau_today,
+        'dau_change': round(dau_change, 1),
+        'signups_today': signups_today,
+        'signups_7days': signups_7days,
+        'match_rate': round(match_rate, 1),
+        'total_matches': matches,
+        'median_match_time': 45,  # Placeholder
+        'avg_match_time': 52,  # Placeholder
+        'total_messages': total_messages,
+        'avg_messages_per_chat': round(avg_messages_per_chat, 1),
+        'active_chats': active_chats,
+        'benches_created': benches_created,
+        'theatres_created': theatres_created,
+        'avg_participants': round(avg_participants, 1),
+        'coins_earned': coins_earned,
+        'coins_spent': coins_spent,
+        'coin_balance': coin_balance,
+        'spending_ratio': round(spending_ratio, 1),
+        'top_items': top_items_formatted,
+    }
+    
+    return render(request, 'analytics_dashboard.html', {
+        'metrics': metrics,
+        'recent_events': recent_events
+    })
+
+
 # ——— Theatre Room Views ———
 from urllib.request import Request, urlopen
 from urllib.error import URLError
@@ -1422,28 +1698,41 @@ from django.http import HttpResponse
 @login_required
 def create_theatre_room(request):
     """Create a new theatre room"""
-    theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
-    channel_url = None
+    if request.method != 'POST':
+        # Don't allow GET to create rooms - show a form or redirect
+        return render(request, 'create_theatre.html')
     
-    if request.method == 'POST':
-        theatre_name = request.POST.get('theatre_name', theatre_name)
-        channel_url = request.POST.get('channel_url')
-        if not theatre_name:
-            theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
-        
+    theatre_name = request.POST.get('theatre_name', f"Theatre Room {timezone.localtime().strftime('%H:%M')}")
+    channel_url = request.POST.get('channel_url')
+    
+    if not theatre_name:
+        theatre_name = f"Theatre Room {timezone.localtime().strftime('%H:%M')}"
+    
     chat_room = ChatRoom.objects.create(
         name=theatre_name,
         room_type='theatre',
         created_by=request.user,
-        max_users=50,  # Or any appropriate number
+        max_users=50,
         channel_url=channel_url
     )
+    chat_room.participants.add(request.user)
+    
+    messages.success(request, f'Theatre room "{theatre_name}" created!')
     return redirect('theatre_room_view', room_id=chat_room.room_id)
 
 @login_required
 def theatre_room_view(request, room_id):
     """View for the theatre UI"""
     room = get_object_or_404(ChatRoom, room_id=room_id, room_type='theatre')
+    
+    # Block access to closed rooms
+    if not room.is_active:
+        messages.error(request, 'This theatre room has been closed')
+        return redirect('home')
+    
+    # Add viewer to participants if not already (Issue 9 fix)
+    if not room.participants.filter(id=request.user.id).exists():
+        room.participants.add(request.user)
     
     # Initialize 10 seats if they don't exist
     from .models import TheatreSeat
@@ -1459,19 +1748,36 @@ def theatre_room_view(request, room_id):
     return render(request, 'theatre_room.html', context)
 
 
+@login_required
 @csrf_exempt
 def proxy_m3u(request):
-    """Proxy view to fetch M3U playlists and TS segments, bypassing CORS."""
+    """Proxy view to fetch M3U playlists ONLY - streams load directly in browser."""
     url = request.GET.get('url')
     if not url:
         return HttpResponse("Missing URL", status=400)
+    
+    # Security: Allowlist exact hostnames for playlist sources only
+    from urllib.parse import urlparse
+    parsed_url = urlparse(url)
+    
+    # Only allow playlist fetches from trusted sources
+    # Streams will load directly in browser (no proxy)
+    allowed_hosts = {
+        'iptv-org.github.io',
+        # Add other trusted playlist sources here
+    }
+    
+    if parsed_url.netloc not in allowed_hosts:
+        return HttpResponse("URL not allowed - only playlist sources permitted", status=403)
+    
+    # Only allow m3u/m3u8 playlist files, not streams
+    if not (url.endswith('.m3u') or url.endswith('.m3u8') or '/index.m3u' in url):
+        return HttpResponse("Only playlist files allowed", status=403)
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': '*/*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive',
-        'Referer': url,
     }
 
     try:
@@ -1479,53 +1785,48 @@ def proxy_m3u(request):
             url,
             headers=headers,
             timeout=15,
-            verify=False,  # Many IPTV streams have self-signed certs
-            stream=True,
-            allow_redirects=True,
+            verify=True,  # SSL verification enabled
+            stream=False,  # Don't stream - only playlists
+            allow_redirects=False,  # Don't follow redirects to prevent bypass
         )
         resp.raise_for_status()
+        
+        # Only handle redirects to allowed hosts
+        if resp.status_code in (301, 302, 303, 307, 308):
+            redirect_url = resp.headers.get('Location', '')
+            redirect_parsed = urlparse(redirect_url)
+            if redirect_parsed.netloc not in allowed_hosts:
+                return HttpResponse("Redirect to non-allowlisted host blocked", status=403)
+            # Follow the redirect manually
+            return proxy_m3u(request)  # Recursive call with new URL
 
-        content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
-
-        # For M3U/M3U8 playlists — read fully and rewrite relative URLs to go through the proxy
-        if 'm3u' in content_type or url.endswith('.m3u8') or url.endswith('.m3u'):
-            content = resp.content.decode('utf-8', errors='replace')
-            # Rewrite relative TS segment / sub-playlist URLs so they also pass through proxy
-            base_url = url.rsplit('/', 1)[0] + '/'
-            rewritten_lines = []
-            for line in content.splitlines():
-                stripped = line.strip()
-                if stripped and not stripped.startswith('#'):
-                    if stripped.startswith('http://') or stripped.startswith('https://'):
-                        # Already absolute — proxy it
-                        rewritten_lines.append('/proxy-m3u/?url=' + req_lib.utils.quote(stripped, safe=''))
-                    else:
-                        # Relative URL — make absolute then proxy it
-                        abs_url = base_url + stripped
-                        rewritten_lines.append('/proxy-m3u/?url=' + req_lib.utils.quote(abs_url, safe=''))
+        content = resp.content.decode('utf-8', errors='replace')
+        
+        # Parse playlist and return stream URLs directly (no proxy)
+        # Client player will load streams directly
+        rewritten_lines = []
+        base_url = url.rsplit('/', 1)[0] + '/'
+        
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                # Stream URL - return as-is (no proxy)
+                if stripped.startswith('http://') or stripped.startswith('https://'):
+                    rewritten_lines.append(stripped)
                 else:
-                    rewritten_lines.append(line)
-            rewritten = '\n'.join(rewritten_lines)
-            response = HttpResponse(rewritten, content_type='application/vnd.apple.mpegurl; charset=utf-8')
-        else:
-            # For TS segments and other binary content — stream it
-            def stream_content():
-                for chunk in resp.iter_content(chunk_size=8192):
-                    yield chunk
-            response = StreamingHttpResponse(stream_content(), content_type=content_type)
-
+                    # Relative URL - make absolute
+                    rewritten_lines.append(base_url + stripped)
+            else:
+                rewritten_lines.append(line)
+        
+        rewritten = '\n'.join(rewritten_lines)
+        response = HttpResponse(rewritten, content_type='application/vnd.apple.mpegurl; charset=utf-8')
         response['Access-Control-Allow-Origin'] = '*'
         response['Access-Control-Allow-Headers'] = '*'
         response['Cache-Control'] = 'no-cache'
         return response
 
-    except req_lib.exceptions.SSLError as e:
-        return HttpResponse(f"SSL Error: {str(e)}", status=502)
-    except req_lib.exceptions.ConnectionError as e:
-        return HttpResponse(f"Connection Error: {str(e)}", status=502)
-    except req_lib.exceptions.Timeout:
-        return HttpResponse("Stream timed out", status=504)
     except req_lib.exceptions.HTTPError as e:
-        return HttpResponse(f"Upstream HTTP error: {str(e)}", status=502)
+        return HttpResponse(f"Upstream error: {e}", status=502)
     except Exception as e:
-        return HttpResponse(f"Proxy error: {str(e)}", status=500)
+        return HttpResponse(f"Error: {str(e)}", status=500)

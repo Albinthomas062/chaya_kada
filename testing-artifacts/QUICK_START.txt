@@ -1,0 +1,62 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   3D THEATRE ROOM TESTING - QUICK START                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+⚠️  STATUS: BLOCKED - Database not running
+
+📋 TO RESUME TESTING:
+
+1️⃣  Start PostgreSQL
+   $ sudo systemctl start postgresql
+   OR
+   $ pg_ctl start -D /var/lib/postgresql/data
+
+2️⃣  Create test users (paste into python3 manage.py shell):
+   
+   from django.contrib.auth.models import User
+   from chatkada.models import ChatRoom
+   
+   User.objects.create_user('theatretest1', password='test12345')
+   User.objects.create_user('theatretest2', password='test12345')
+   
+   room = ChatRoom.objects.create(
+       name="Test Theatre",
+       slug="test-theatre", 
+       room_type="theatre"
+   )
+   print(f"\n✅ Room created: http://localhost:8000/theatre/{room.id}/\n")
+
+3️⃣  Open 2 Chrome windows, login as both users, navigate to theatre room
+
+4️⃣  Test checklist:
+   □ 3D scene loads (no WebGL fallback)
+   □ Camera intro animation plays
+   □ 10 seats visible
+   □ User 1 clicks seat → gold highlight
+   □ User 2 sees seat as red (occupied)
+   □ User 2 clicks occupied seat → error toast
+   □ User 2 picks different seat → gold for them
+   □ Chat messages sync between users
+   □ Change channel → syncs to both users
+   □ Video doesn't restart when taking seat
+   □ Press F to show FPS counter
+   □ Resize to 390px width (mobile test)
+   □ Check DevTools console for errors
+
+5️⃣  Capture evidence:
+   - Screenshot: Both users with occupied seats
+   - Screenshot: Chat messages visible
+   - Screenshot: Channel picker modal
+   - Screenshot: Mobile 390px view
+   - Screenshot: FPS counter
+   - Video: 30-60 second demo
+
+📁 READ THESE FILES:
+   • EXECUTIVE_SUMMARY.txt ← Start here (you're reading it!)
+   • theatre_testing_blocked_report.md ← Full technical details
+   • README.md ← Artifact index
+   • 01_database_error_registration.webp ← Proof of blocker
+
+⏱️  Estimated time once DB is up: 30-45 minutes
+
+🎯 Goal: Verify 40+ test cases across desktop, mobile, and accessibility

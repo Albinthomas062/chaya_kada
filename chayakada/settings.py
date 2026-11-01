@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 import os
+import sys
 import dj_database_url
 from pathlib import Path
 from celery.schedules import crontab
@@ -29,9 +30,37 @@ LOGOUT_REDIRECT_URL = '/'
 SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG =  config("DEBUG", default=False, cast=bool)
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=lambda v: [s.strip() for s in v.split(",")])
+
+# CSRF trusted origins
+CSRF_TRUSTED_ORIGINS = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:8000,http://127.0.0.1:8000",
+    cast=lambda v: [s.strip() for s in v.split(",")]
+)
+
+# Production security settings (env-configurable)
+ENABLE_SSL_REDIRECT = config("ENABLE_SSL_REDIRECT", default=not DEBUG, cast=bool)
+ENABLE_SECURE_COOKIES = config("ENABLE_SECURE_COOKIES", default=not DEBUG, cast=bool)
+ENABLE_HSTS = config("ENABLE_HSTS", default=False, cast=bool)  # Opt-in for HSTS
+ENABLE_HSTS_PRELOAD = config("ENABLE_HSTS_PRELOAD", default=False, cast=bool)  # Opt-in for preload
+
+if ENABLE_SSL_REDIRECT:
+    SECURE_SSL_REDIRECT = True
+
+if ENABLE_SECURE_COOKIES:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+if ENABLE_HSTS:
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    if ENABLE_HSTS_PRELOAD:
+        SECURE_HSTS_PRELOAD = True
+    
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Application definition
@@ -85,11 +114,16 @@ ASGI_APPLICATION = 'chayakada.asgi.application'
 
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [config("REDIS_URL", default="redis://localhost:6379")],
+        },
     },
 }
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    # Tests must not publish into the live Redis channel layer
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
@@ -111,6 +145,32 @@ else:
         }
     }
 
+
+
+# Cache configuration (Redis for production, LocMem for local development)
+REDIS_URL = config("REDIS_URL", default=None)
+
+TESTING = len(sys.argv) > 1 and sys.argv[1] == 'test'
+
+if REDIS_URL and not TESTING:
+    # Use Redis cache when available (production). Tests always use LocMem so
+    # cache.clear() in tests never flushes the live Redis DB.
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'KEY_PREFIX': 'chayakada',
+            'TIMEOUT': 300,
+        }
+    }
+else:
+    # Fallback to LocMem cache for local development without Redis
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'chayakada-cache',
+        }
+    }
 
 
 # Password validation
@@ -137,7 +197,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'  # IST: server-rendered times + 'today' for streaks/challenges
 
 USE_I18N = True
 
@@ -150,6 +210,60 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
+# Media files (uploads)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+# Cloudinary configuration (optional) and STORAGES (Django 4.2+)
+CLOUDINARY_URL = config("CLOUDINARY_URL", default=None)
+
+# Static files backend for tests vs production
+if 'test' in sys.argv:
+    STATICFILES_BACKEND = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+else:
+    STATICFILES_BACKEND = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# Check if cloudinary is installed
+try:
+    import cloudinary
+    import cloudinary_storage
+    CLOUDINARY_AVAILABLE = True
+except ImportError:
+    CLOUDINARY_AVAILABLE = False
+
+if CLOUDINARY_URL and CLOUDINARY_AVAILABLE:
+    # Use Cloudinary for media storage if configured and available
+    INSTALLED_APPS.insert(0, 'cloudinary_storage')
+    INSTALLED_APPS.insert(0, 'cloudinary')
+    
+    CLOUDINARY_STORAGE = {
+        'CLOUDINARY_URL': CLOUDINARY_URL,
+    }
+    
+    # STORAGES setting (Django 4.2+)
+    STORAGES = {
+        "default": {
+            "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        },
+        "staticfiles": {
+            "BACKEND": STATICFILES_BACKEND,
+        },
+    }
+else:
+    # Local media storage with whitenoise for static files
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": STATICFILES_BACKEND,
+        },
+    }
+
+# Session settings
+SESSION_COOKIE_AGE = 3600 * 12  # 12 hours
+SESSION_SAVE_EVERY_REQUEST = True
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -157,7 +271,8 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CRONJOBS = [
-    ('0 * * * *', 'chatkada.management.commands.cleanup_expired_messages.Command'),  # Every hour
+    # Add your cron jobs here if needed
+    # Example: ('0 2 * * *', 'chatkada.tasks.cleanup_old_messages'),
 ]
 
 

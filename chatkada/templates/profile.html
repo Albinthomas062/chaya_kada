@@ -167,10 +167,63 @@
         </div>
     </div>
 </div>
+
+<!-- Toast Container -->
+<div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
+
 {% endblock %}
 
 {% block extra_js %}
+<style>
+.toast {
+    background: white;
+    border-left: 4px solid #d4af37;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 250px;
+    animation: slideIn 0.3s ease;
+}
+
+.toast.success { border-left-color: #28a745; }
+.toast.error { border-left-color: #dc3545; }
+.toast.info { border-left-color: #17a2b8; }
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+</style>
+
 <script>
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        info: 'fa-info-circle'
+    };
+    
+    toast.innerHTML = `
+        <i class="fas ${icons[type]}" style="font-size: 1.2rem; color: var(--accent-color);"></i>
+        <span style="flex: 1;">${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'slideIn 0.3s ease reverse';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
 let currentPurchaseId = null;
 let maxQuantity = 0;
 
@@ -222,12 +275,12 @@ document.getElementById('confirm-share-btn').addEventListener('click', function(
     const message = document.getElementById('share-message').value.trim();
     
     if (!roomId) {
-        alert('Please select a chat room');
+        showToast('Please select a chat room', 'error');
         return;
     }
     
     if (quantity > maxQuantity || quantity < 1) {
-        alert(`Please enter a quantity between 1 and ${maxQuantity}`);
+        showToast(`Please enter a quantity between 1 and ${maxQuantity}`, 'error');
         return;
     }
     
@@ -248,15 +301,15 @@ document.getElementById('confirm-share-btn').addEventListener('click', function(
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert(data.message);
-            location.reload(); // Refresh to show updated quantities
+            showToast(data.message, 'success');
+            setTimeout(() => location.reload(), 1000); // Refresh after showing toast
         } else {
-            alert('Error: ' + data.message);
+            showToast('Error: ' + data.message, 'error');
         }
     })
     .catch(error => {
         console.error('Error sharing item:', error);
-        alert('An error occurred while sharing the item');
+        showToast('An error occurred while sharing the item', 'error');
     });
     
     document.getElementById('share-modal').style.display = 'none';

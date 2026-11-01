@@ -1,25 +1,386 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Manage Items - Admin{% endblock %}
+
 {% block content %}
-<h2>Items</h2>
-<a href="{% url 'add_item' %}">Add New Item</a>
-<table>
-<thead>
-<tr><th>Name</th><th>Emoji</th><th>Category</th><th>Price</th><th>Available</th><th>Actions</th></tr>
-</thead>
-<tbody>
-{% for item in items %}
-<tr>
-<td>{{ item.name }}</td>
-<td>{{ item.emoji }}</td>
-<td>{{ item.get_category_display }}</td>
-<td>{{ item.price }}</td>
-<td>{{ item.available }}</td>
-<td>
-    <a href="{% url 'edit_item' item.id %}">Edit</a> |
-    <a href="{% url 'delete_item' item.id %}">Delete</a>
-</td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
+<div class="admin-container">
+    <div class="admin-header">
+        <h1><i class="fas fa-shopping-bag"></i> Manage Items</h1>
+        <div class="header-actions">
+            <a href="{% url 'custom_admin_dashboard' %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Dashboard
+            </a>
+            <a href="{% url 'add_item' %}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Add Item
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-card">
+        <form method="get" class="filters-form">
+            <div class="filter-group">
+                <input 
+                    type="text" 
+                    name="search" 
+                    value="{{ search_query }}" 
+                    placeholder="Search items..."
+                    class="form-control"
+                >
+            </div>
+
+            <div class="filter-group">
+                <select name="category" class="form-control">
+                    <option value="">All Categories</option>
+                    {% for value, label in categories %}
+                    <option value="{{ value }}" {% if category_filter == value %}selected{% endif %}>
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <select name="availability" class="form-control">
+                    <option value="">All Items</option>
+                    <option value="available" {% if availability_filter == 'available' %}selected{% endif %}>Available Only</option>
+                    <option value="hidden" {% if availability_filter == 'hidden' %}selected{% endif %}>Hidden Only</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <select name="order_by" class="form-control">
+                    <option value="sort_order" {% if order_by == 'sort_order' %}selected{% endif %}>Sort Order</option>
+                    <option value="name" {% if order_by == 'name' %}selected{% endif %}>Name (A-Z)</option>
+                    <option value="-name" {% if order_by == '-name' %}selected{% endif %}>Name (Z-A)</option>
+                    <option value="price" {% if order_by == 'price' %}selected{% endif %}>Price (Low-High)</option>
+                    <option value="-price" {% if order_by == '-price' %}selected{% endif %}>Price (High-Low)</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-filter"></i> Filter
+            </button>
+        </form>
+    </div>
+
+    <!-- Items Table -->
+    <div class="items-table-wrapper">
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th>Image</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Price</th>
+                    <th>Sort</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>
+                        {% if item.image %}
+                        <img src="{{ item.image.url }}" alt="{{ item.name }}" class="item-thumb">
+                        {% else %}
+                        <span class="item-emoji">{{ item.emoji }}</span>
+                        {% endif %}
+                    </td>
+                    <td><strong>{{ item.name }}</strong></td>
+                    <td>{{ item.get_category_display }}</td>
+                    <td>{{ item.price }} <i class="fas fa-coins"></i></td>
+                    <td>{{ item.sort_order }}</td>
+                    <td>
+                        <button 
+                            class="status-toggle {% if item.available %}status-active{% else %}status-hidden{% endif %}"
+                            onclick="toggleAvailability({{ item.id }}, this)"
+                        >
+                            {% if item.available %}
+                            <i class="fas fa-eye"></i> Visible
+                            {% else %}
+                            <i class="fas fa-eye-slash"></i> Hidden
+                            {% endif %}
+                        </button>
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                            <a href="{% url 'edit_item' item.id %}" class="btn btn-sm btn-secondary">
+                                <i class="fas fa-edit"></i>
+                            </a>
+                            <button onclick="confirmDelete({{ item.id }}, '{{ item.name|escapejs }}')" class="btn btn-sm btn-danger">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                        <i class="fas fa-inbox" style="font-size: 3rem; margin-bottom: 1rem; display: block;"></i>
+                        No items found
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if items.has_other_pages %}
+    <div class="pagination">
+        {% if items.has_previous %}
+        <a href="?page=1{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}" class="page-link">
+            <i class="fas fa-angle-double-left"></i>
+        </a>
+        <a href="?page={{ items.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}" class="page-link">
+            <i class="fas fa-angle-left"></i>
+        </a>
+        {% endif %}
+
+        <span class="page-info">
+            Page {{ items.number }} of {{ items.paginator.num_pages }}
+        </span>
+
+        {% if items.has_next %}
+        <a href="?page={{ items.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}" class="page-link">
+            <i class="fas fa-angle-right"></i>
+        </a>
+        <a href="?page={{ items.paginator.num_pages }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}" class="page-link">
+            <i class="fas fa-angle-double-right"></i>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Delete Confirmation Form (hidden) -->
+<form id="deleteForm" method="post" style="display: none;">
+    {% csrf_token %}
+    <input type="hidden" name="soft_delete" value="1">
+</form>
+
+<div id="toast-container"></div>
+
+<style>
+.admin-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+}
+
+.admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.admin-header h1 {
+    margin: 0;
+    color: var(--accent-color);
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filters-card {
+    background: var(--surface-color);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.filters-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    align-items: end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.items-table-wrapper {
+    background: var(--surface-color);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.items-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.items-table thead {
+    background: rgba(139, 94, 52, 0.2);
+}
+
+.items-table th {
+    padding: 1rem;
+    text-align: left;
+    color: var(--accent-color);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.items-table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.items-table tbody tr:hover {
+    background: rgba(139, 94, 52, 0.05);
+}
+
+.item-thumb {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+}
+
+.item-emoji {
+    font-size: 2rem;
+    display: inline-block;
+}
+
+.status-toggle {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s;
+}
+
+.status-active {
+    background: rgba(40, 167, 69, 0.2);
+    color: #28a745;
+    border: 1px solid #28a745;
+}
+
+.status-hidden {
+    background: rgba(108, 117, 125, 0.2);
+    color: #6c757d;
+    border: 1px solid #6c757d;
+}
+
+.status-toggle:hover {
+    transform: translateY(-2px);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 2rem;
+}
+
+.page-link {
+    padding: 0.5rem 1rem;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    text-decoration: none;
+    transition: all 0.3s;
+}
+
+.page-link:hover {
+    border-color: var(--accent-color);
+    background: rgba(139, 94, 52, 0.1);
+}
+
+.page-info {
+    padding: 0.5rem 1rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .filters-form {
+        grid-template-columns: 1fr;
+    }
+    
+    .items-table-wrapper {
+        overflow-x: auto;
+    }
+    
+    .items-table {
+        min-width: 800px;
+    }
+}
+</style>
+
+<script>
+function toggleAvailability(itemId, button) {
+    fetch(`/custom-admin/items/${itemId}/toggle/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.available) {
+                button.className = 'status-toggle status-active';
+                button.innerHTML = '<i class="fas fa-eye"></i> Visible';
+            } else {
+                button.className = 'status-toggle status-hidden';
+                button.innerHTML = '<i class="fas fa-eye-slash"></i> Hidden';
+            }
+            showToast(data.message, 'success');
+        }
+    })
+    .catch(error => {
+        showToast('Failed to toggle availability', 'error');
+    });
+}
+
+function confirmDelete(itemId, itemName) {
+    if (confirm(`Delete "${itemName}"?\n\nChoose:\n- OK = Hide (soft delete)\n- Cancel = Keep it`)) {
+        const form = document.getElementById('deleteForm');
+        form.action = `/custom-admin/items/${itemId}/delete/`;
+        form.submit();
+    }
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check' : 'exclamation'}-circle"></i>
+        <span>${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+</script>
 {% endblock %}

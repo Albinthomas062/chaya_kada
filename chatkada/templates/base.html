@@ -6,13 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Chaya Kada{% endblock %}</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{% load static %}{% static 'chatkada/css/style.css' %}?v=2">
+    <link rel="stylesheet" href="{% load static %}{% static 'chatkada/css/style.css' %}?v=3">
     <!-- Favicon for most browsers -->
 <link rel="icon" type="image/png" href="{% static 'chatkada/img/chaya_kada_cup.png' %}">
 
 <!-- For old IE and some other browsers (.ico format) -->
 <link rel="shortcut icon" href="{% static 'chatkada/img/favicon.ico' %}">
 
+    {% block extra_head %}{% endblock %}
 </head>
 
 <body>
@@ -102,13 +103,13 @@
                 <div class="section-header">
                     <h4><i class="fas fa-cloud-rain"></i> Rain Effects</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="rain-toggle" checked>
+                        <input type="checkbox" id="rain-toggle" checked aria-label="Enable rain effects">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Volume</label>
-                    <input type="range" id="rain-volume" min="0" max="100" value="30">
+                    <label for="rain-volume">Volume</label>
+                    <input type="range" id="rain-volume" min="0" max="100" value="30" aria-label="Rain volume">
                     <span id="rain-volume-display">30%</span>
                 </div>
             </div>
@@ -118,18 +119,18 @@
                 <div class="section-header">
                     <h4><i class="fas fa-bolt"></i> Thunder & Lightning</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="thunder-toggle">
+                        <input type="checkbox" id="thunder-toggle" aria-label="Enable thunder and lightning">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Thunder Volume</label>
-                    <input type="range" id="thunder-volume" min="0" max="100" value="25">
+                    <label for="thunder-volume">Thunder Volume</label>
+                    <input type="range" id="thunder-volume" min="0" max="100" value="25" aria-label="Thunder volume">
                     <span id="thunder-volume-display">25%</span>
                 </div>
                 <div class="thunder-frequency">
-                    <label>Frequency</label>
-                    <select id="thunder-frequency">
+                    <label for="thunder-frequency">Frequency</label>
+                    <select id="thunder-frequency" name="thunder-frequency" aria-label="Thunder frequency">
                         <option value="rare">Rare (5-10 min)</option>
                         <option value="occasional" selected>Occasional (2-5 min)</option>
                         <option value="frequent">Frequent (30s-2 min)</option>
@@ -148,13 +149,13 @@
                 <div class="section-header">
                     <h4><i class="fas fa-users"></i> Crowd Ambience</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="crowd-toggle">
+                        <input type="checkbox" id="crowd-toggle" aria-label="Enable crowd ambience">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Volume</label>
-                    <input type="range" id="crowd-volume" min="0" max="100" value="15">
+                    <label for="crowd-volume">Volume</label>
+                    <input type="range" id="crowd-volume" min="0" max="100" value="15" aria-label="Crowd volume">
                     <span id="crowd-volume-display">15%</span>
                 </div>
             </div>
@@ -164,13 +165,13 @@
                 <div class="section-header">
                     <h4><i class="fas fa-radio"></i> Nostalgic Radio</h4>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="music-toggle">
+                        <input type="checkbox" id="music-toggle" aria-label="Enable nostalgic radio music">
                         <span class="slider"></span>
                     </label>
                 </div>
                 <div class="volume-control">
-                    <label>Volume</label>
-                    <input type="range" id="music-volume" min="0" max="100" value="25">
+                    <label for="music-volume">Volume</label>
+                    <input type="range" id="music-volume" min="0" max="100" value="25" aria-label="Music volume">
                     <span id="music-volume-display">25%</span>
                 </div>
                 <div class="music-controls">
@@ -194,16 +195,16 @@
     </div>
 
     <!-- Audio Elements -->
-    <audio id="rain-audio" loop>
+    <audio id="rain-audio" loop preload="none">
         <source src="{% static 'chatkada/sounds/Rain.mp3' %}" type="audio/mpeg">
     </audio>
-    <audio id="thunder-audio">
+    <audio id="thunder-audio" preload="none">
         <source src="{% static 'chatkada/sounds/thunder-1.m4a' %}" type="audio/mpeg">
     </audio>
-    <audio id="crowd-audio" loop>
+    <audio id="crowd-audio" loop preload="none">
         <source src="{% static 'chatkada/sounds/Cafe.mp3' %}" type="audio/mpeg">
     </audio>
-    <audio id="music-audio">
+    <audio id="music-audio" preload="none">
         <source src="{% static 'chatkada/sounds/Alliyambal.mp3' %}" type="audio/mpeg">
     </audio>
 
@@ -220,6 +221,19 @@
     <!-- Screen Flash Effect -->
     <div id="screen-flash" class="screen-flash"></div>
 
+    {% if user.is_authenticated %}
+    <script>
+        // Page restored from the back/forward cache: make sure we're still
+        // logged in (e.g. user logged out, then pressed Back).
+        window.addEventListener('pageshow', function (e) {
+            window.__lastPageshowPersisted = e.persisted;
+            if (!e.persisted) return;
+            fetch('{% url "get_online_status" %}', { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })
+                .then(function (r) { if (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403 || r.status === 302) location.reload(); })
+                .catch(function () {});
+        });
+    </script>
+    {% endif %}
     <script>
         window.addEventListener('load', function () {
             var loader = document.getElementById('loader-screen');
@@ -291,7 +305,8 @@
 
     <script src="{% load static %}{% static 'chatkada/js/app.js' %}"></script>
     <script src="{% load static %}{% static 'chatkada/js/rain.js' %}"></script>
-    <script src="{% load static %}{% static 'chatkada/js/enhanced-audio-control.js' %}?v=2"></script>
+    <script src="{% load static %}{% static 'chatkada/js/enhanced-audio-control.js' %}?v=4"></script>
+    <script src="{% load static %}{% static 'chatkada/js/persistent-audio.js' %}?v=2"></script>
     {% block extra_js %}{% endblock %}
 </body>
 

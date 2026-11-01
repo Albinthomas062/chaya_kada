@@ -1,11 +1,12 @@
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from . import views
+from . import admin_views
 
 urlpatterns = [
     path('', views.home, name='home'),
     path('register/', views.register, name='register'),
-    path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
+    path('login/', views.login_view, name='login'),
     path('logout/', views.custom_logout, name='logout'),
     path('kada/', views.kada, name='kada'),
     path('profile/', views.profile, name='profile'),
@@ -26,6 +27,8 @@ urlpatterns = [
     path('get-coin-progress/', views.get_coin_progress, name='get_coin_progress'),
     path('get-online-status/', views.get_online_status, name='get_online_status'),
     path('find-stranger/', views.find_stranger_chat, name='find_stranger_chat'),
+    path('handle-stranger-chat-request/', views.handle_stranger_chat_request, name='handle_stranger_chat_request'),
+    # check-match-status removed - unused endpoint
     
     # Bench Invite URLs
     path('create-bench-invite/<uuid:room_id>/', views.create_bench_invite, name='create_bench_invite'),
@@ -37,14 +40,47 @@ urlpatterns = [
     path('proxy-m3u/', views.proxy_m3u, name='proxy_m3u'),
     
     # Item management for admin
-    path('custom-admin/login/', views.custom_admin_login, name='custom_admin_login'),
-    path('custom-admin/', views.custom_admin_dashboard, name='custom_admin_dashboard'),
-    path('custom-admin/items/', views.manage_items, name='manage_items'),
-    path('custom-admin/items/add/', views.add_item, name='add_item'),
-    path('custom-admin/items/<int:item_id>/edit/', views.edit_item, name='edit_item'),
-    path('custom-admin/items/<int:item_id>/delete/', views.delete_item, name='delete_item'),
+    path('custom-admin/login/', admin_views.custom_admin_login, name='custom_admin_login'),
+    path('custom-admin/logout/', admin_views.custom_admin_logout, name='custom_admin_logout'),
+    path('custom-admin/', admin_views.custom_admin_dashboard, name='custom_admin_dashboard'),
+    path('custom-admin/items/', admin_views.manage_items, name='manage_items'),
+    path('custom-admin/items/add/', admin_views.add_item, name='add_item'),
+    path('custom-admin/items/<int:item_id>/edit/', admin_views.edit_item, name='edit_item'),
+    path('custom-admin/items/<int:item_id>/delete/', admin_views.delete_item, name='delete_item'),
+    path('custom-admin/items/<int:item_id>/toggle/', admin_views.toggle_item_availability, name='toggle_item_availability'),
+    
+    # User management
+    path('custom-admin/users/', admin_views.manage_users, name='manage_users'),
+    path('custom-admin/users/<int:user_id>/', admin_views.view_user, name='view_user'),
+    path('custom-admin/users/<int:user_id>/adjust-coins/', admin_views.adjust_user_coins, name='adjust_user_coins'),
+    path('custom-admin/users/<int:user_id>/toggle-ban/', admin_views.toggle_user_ban, name='toggle_user_ban'),
+    
+    # Room management
+    path('custom-admin/rooms/', admin_views.manage_rooms, name='manage_rooms'),
+    path('custom-admin/rooms/<uuid:room_id>/close/', admin_views.close_room, name='close_room'),
     
     # Challenge management for admin
-    path('custom-admin/challenges/', views.manage_challenges, name='manage_challenges'),
-    path('custom-admin/challenges/assign/', views.assign_challenge, name='assign_challenge'),
+    path('custom-admin/challenges/', admin_views.manage_challenges, name='manage_challenges'),
+    path('custom-admin/challenges/assign/', admin_views.assign_challenge, name='assign_challenge'),
+    path('custom-admin/analytics/', admin_views.analytics_dashboard, name='analytics_dashboard'),
 ]
+
+# Serve media files in development or when SERVE_MEDIA is True (for self-hosted without Cloudinary)
+from django.conf import settings
+from decouple import config
+
+# Only serve media if not using Cloudinary
+CLOUDINARY_URL = config("CLOUDINARY_URL", default=None)
+SERVE_MEDIA = config("SERVE_MEDIA", default=not bool(CLOUDINARY_URL), cast=bool)
+
+if SERVE_MEDIA:
+    from django.conf.urls.static import static
+    from django.views.static import serve
+    from django.urls import re_path
+    
+    # Serve media files
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve, {
+            'document_root': settings.MEDIA_ROOT,
+        }),
+    ]

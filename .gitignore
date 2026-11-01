@@ -16,3 +16,8 @@ yarn-error.log
 .DS_Store
 *.sqlite3
 *.log
+venv/
+**/staticfiles/
+staticfiles/
+dump.rdb
+media/items/test_*.png

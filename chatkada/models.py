@@ -207,18 +207,35 @@ class Item(models.Model):
         ('chai', 'Chai'),
         ('snacks', 'Snacks'),
         ('sweets', 'Sweets'),
+        ('gifts', 'Gifts'),
     ]
     
     name = models.CharField(max_length=100)
-    price = models.IntegerField()
+    price = models.IntegerField(help_text="Price in coins")
     category = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
-    emoji = models.CharField(max_length=10, default='☕')
+    emoji = models.CharField(max_length=10, default='☕', help_text="Emoji fallback if no image")
+    image = models.ImageField(upload_to='items/', blank=True, null=True, help_text="Item image (optional)")
     description = models.TextField(blank=True)
     available = models.BooleanField(default=True)
     can_be_shared = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0, help_text="Lower numbers appear first")
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        ordering = ['sort_order', 'category', 'name']
+        indexes = [
+            models.Index(fields=['category', 'available']),
+        ]
 
     def __str__(self):
         return self.name
+    
+    def get_image_url(self):
+        """Return image URL or None"""
+        if self.image and hasattr(self.image, 'url'):
+            return self.image.url
+        return None
 
 class Purchase(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -272,8 +289,8 @@ class ChatMessage(models.Model):
         ordering = ['-timestamp']
     
     def save(self, *args, **kwargs):
-        # Set expiration time for stranger chat messages (24 hours)
-        if not self.expires_at and self.room.room_type == 'stranger':
+        # Set expiration time ONLY for stranger chat messages (24 hours)
+        if not self.expires_at and self.room and self.room.room_type == 'stranger':
             self.expires_at = timezone.now() + timedelta(hours=24)
         super().save(*args, **kwargs)
     
@@ -292,3 +309,43 @@ class TheatreSeat(models.Model):
         
     def __str__(self):
         return f"Seat {self.seat_number} in {self.room.name}"
+
+
+class AnalyticsEvent(models.Model):
+    """Track key user events for metrics and analytics"""
+    EVENT_TYPES = [
+        ('signup', 'User Signup'),
+        ('login', 'User Login'),
+        ('stranger_search_started', 'Stranger Search Started'),
+        ('stranger_match_made', 'Stranger Match Made'),
+        ('message_sent', 'Message Sent'),
+        ('bench_created', 'Bench Created'),
+        ('bench_joined', 'Bench Joined'),
+        ('theatre_created', 'Theatre Created'),
+        ('theatre_joined', 'Theatre Joined'),
+        ('item_bought', 'Item Bought'),
+        ('item_shared', 'Item Shared'),
+        ('challenge_claimed', 'Challenge Claimed'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='analytics_events', null=True, blank=True)
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPES, db_index=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    # Optional metadata stored as JSON-like fields
+    metadata_text = models.TextField(blank=True, null=True)  # For storing additional info
+    metadata_int = models.IntegerField(null=True, blank=True)  # For numeric values (coins, duration, etc.)
+    related_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='related_analytics_events')
+    related_room = models.ForeignKey(ChatRoom, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['event_type', 'timestamp']),
+            models.Index(fields=['user', 'timestamp']),
+        ]
+    
+    def __str__(self):
+        user_str = self.user.username if self.user else 'Anonymous'
+        return f"{user_str} - {self.get_event_type_display()} at {self.timestamp}"
+

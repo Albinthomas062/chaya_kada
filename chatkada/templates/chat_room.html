@@ -2,195 +2,259 @@
 {% load static %}
 {% load chat_filters %}
 
+{% block title %}{{ room.name }} - Chaya Kada{% endblock %}
+
 {% block content %}
 <div class="chat-room-container">
     <div class="chat-header">
         <div class="room-info">
-            <h2><i class="fas fa-comments"></i> {{ room.name }}</h2>
-            <span class="room-meta">
-                <i class="fas fa-users"></i> {{ room.get_participant_count }}/{{ room.max_users }} participants
-                <span class="room-type">{{ room.get_room_type_display }}</span>
+            <h2><i class="fas fa-comments"></i> <span class="room-name-text">{{ room.name }}</span></h2>
+            <div class="room-meta">
+                <span class="meta-item"><i class="fas fa-users"></i> {{ room.get_participant_count }}/{{ room.max_users }}</span>
+                <span class="meta-item room-type-badge">{{ room.get_room_type_display }}</span>
                 {% if room|is_stranger_chat %}
-                <span class="anonymous-badge"><i class="fas fa-user-secret"></i> Anonymous Chat</span>
+                <span class="meta-item anonymous-badge"><i class="fas fa-user-secret"></i> Anonymous</span>
                 {% endif %}
-            </span>
+            </div>
         </div>
         <div class="chat-controls">
-            <button id="share-item-btn" class="btn btn-sm btn-secondary">
-                <i class="fas fa-share"></i> Share Snacks
+            {% if can_invite %}
+            <button id="show-invite-btn" class="btn btn-sm btn-secondary" title="Get invite link">
+                <i class="fas fa-link"></i><span class="btn-text"> Invite</span>
             </button>
-            <a href="{% url 'leave_chat' room.room_id %}" class="btn btn-sm btn-danger">
-                <i class="fas fa-sign-out-alt"></i> Leave Chat
+            {% endif %}
+            <button id="share-item-btn" class="btn btn-sm btn-secondary" title="Share snacks with room">
+                <i class="fas fa-share"></i><span class="btn-text"> Share</span>
+            </button>
+            <a href="{% url 'leave_chat' room.room_id %}" class="btn btn-sm btn-danger" title="Leave this room">
+                <i class="fas fa-sign-out-alt"></i><span class="btn-text"> Leave</span>
             </a>
         </div>
     </div>
 
     <div class="chat-messages" id="chat-messages">
-        {% for message in messages reversed %}
-        <div class="message {% if message.user == user %}own{% endif %} {{ message.message_type }}">
-            <div class="message-header">
-                <span class="username">{{ message.user|anonymous_username:room }}</span>
-                <span class="timestamp">{{ message.timestamp|date:"H:i" }}</span>
-            </div>
-            <div class="message-content">
-                {% if message.message_type == 'item_share' %}
-                <div class="shared-item">
-                    <span class="item-emoji">{{ message.shared_item.emoji }}</span>
-                    <span class="item-text">{{ message.content }}</span>
-                    <div class="item-details">
-                        <small>{{ message.shared_item.name }} x{{ message.shared_quantity }}</small>
-                    </div>
-                </div>
-                {% elif message.message_type == 'system' %}
-                <em>{{ message.content }}</em>
-                {% else %}
-                {{ message.content }}
-                {% endif %}
-            </div>
-        </div>
-        {% endfor %}
+        <!-- Messages rendered here (initial + WebSocket) -->
     </div>
 
     <div class="chat-input-container">
         <div class="chat-input">
-            <input type="text" id="message-input" placeholder="Type your message..." maxlength="500">
-            <button id="send-button" class="btn btn-primary">
+            <input type="text" id="message-input" placeholder="Type your message..." maxlength="500" autocomplete="off">
+            <button id="send-button" class="btn btn-primary" title="Send message">
                 <i class="fas fa-paper-plane"></i>
             </button>
         </div>
     </div>
 </div>
 
+<!-- Auto-expire notice -->
+<div class="auto-expire-notice">
+    <i class="fas fa-clock"></i> Messages auto-delete after 1 hour
+</div>
+
+<!-- Invite Link Modal -->
+{% if can_invite %}
+<div id="invite-modal" class="modal" role="dialog" aria-labelledby="invite-modal-title" aria-hidden="true">
+    <div class="modal-content modern-modal">
+        <button class="modal-close" onclick="closeInviteModal()" aria-label="Close">&times;</button>
+        <h3 id="invite-modal-title">Invite Friends to {{ room.bench_name|default:"this bench" }}</h3>
+        <div class="invite-link-container">
+            <label for="invite-link-input">Share this link:</label>
+            <div class="input-group">
+                <input type="text" id="invite-link-input" value="{{ invite_link|default:'' }}" placeholder="Generating link…" readonly>
+                <button onclick="copyInviteLink()" class="btn btn-primary">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+            </div>
+            <p class="help-text" id="invite-help">Anyone with this link can join your bench</p>
+            <button type="button" id="new-invite-btn" class="btn btn-sm btn-secondary"><i class="fas fa-sync"></i> New link</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Share Item Modal -->
-<div id="share-modal" class="modal">
-    <div class="modal-content">
-        <span class="close">&times;</span>
-        <h3>Share Chaya or Snacks</h3>
+<div id="share-modal" class="modal" role="dialog" aria-labelledby="share-modal-title" aria-hidden="true">
+    <div class="modal-content modern-modal">
+        <button class="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
+        <h3 id="share-modal-title">Share Chaya or Snacks</h3>
         <div class="shareable-items">
             {% for purchase in shareable_items %}
             <div class="shareable-item" data-item-id="{{ purchase.item.id }}">
                 <div class="item-info">
                     <span class="item-emoji">{{ purchase.item.emoji }}</span>
-                    <span class="item-name">{{ purchase.item.name }}</span>
+                    <div class="item-details">
+                        <span class="item-name">{{ purchase.item.name }}</span>
+                        <span class="item-quantity">{{ purchase.quantity }} available</span>
+                    </div>
                 </div>
                 <div class="share-controls">
-                    <input type="number" class="share-quantity" min="1" max="5" value="1">
+                    <input type="number" class="share-quantity" min="1" max="{{ purchase.quantity }}" value="1" aria-label="Quantity to share">
                     <button class="btn btn-sm btn-primary share-btn">
                         <i class="fas fa-share"></i> Share
                     </button>
                 </div>
             </div>
             {% empty %}
-            <p>No items available to share. <a href="{% url 'kada' %}">Buy some items</a> first!</p>
+            <div class="empty-state">
+                <i class="fas fa-cookie-bite"></i>
+                <p>No items to share yet!</p>
+                <a href="{% url 'kada' %}" class="btn btn-primary">Visit Shop</a>
+            </div>
             {% endfor %}
         </div>
     </div>
 </div>
 
-<div class="auto-expire-notice">
-    <i class="fas fa-clock"></i> Messages automatically delete after 1 hour
-</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
     const roomId = '{{ room_id }}';
-    let lastMessageId = 0;
-
-    // Send text message
+    // All chat times are shown in Asia/Kolkata, same as the server render.
+    function formatIST(iso) {
+        const d = iso ? new Date(iso) : new Date();
+        return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+    }
+    const currentUserId = {{ user.id }};
+    let chatSocket = null;
+    
+    // Initial messages from server
+    const initialMessages = [
+        {% for message in chat_messages %}
+        {
+            id: {{ message.id }},
+            user: '{{ message.display_name|escapejs }}',
+            is_own: {{ message.is_own|yesno:"true,false" }},
+            content: '{{ message.content|escapejs }}',
+            timestamp: '{{ message.time_display|escapejs }}',
+            iso: '{{ message.iso_time|escapejs }}',
+            message_type: '{{ message.message_type }}',
+            {% if message.message_type == 'shared_item' and message.shared_item %}
+            shared_item: {
+                name: '{{ message.shared_item.name|escapejs }}',
+                emoji: '{{ message.shared_item.emoji|escapejs }}'
+            }
+            {% endif %}
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
+    
+    // Render initial messages
+    document.addEventListener('DOMContentLoaded', () => {
+        initialMessages.forEach(msg => {
+            appendMessage(msg, msg.is_own && msg.message_type !== 'system');
+        });
+        scrollToBottom();
+    });
+    
+    // WebSocket connection
+    const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsScheme}://${window.location.host}/ws/chat/${roomId}/`;
+    
+    function connectWebSocket() {
+        chatSocket = new WebSocket(wsUrl);
+        
+        chatSocket.onopen = () => {
+            console.log('WebSocket connected');
+            hideConnectionError();
+        };
+        
+        chatSocket.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            
+            if (data.type === 'message' || data.type === 'chat_message') {
+                appendMessage({
+                    user: data.username,
+                    content: data.message,
+                    // server-formatted IST time: identical to what a reload renders
+                    timestamp: data.time_display || formatIST(data.timestamp),
+                    message_type: data.message_type || 'text',
+                    shared_item: data.shared_item
+                }, data.is_own === true);
+            } else if (data.type === 'user_joined') {
+                showSystemMessage(`${data.username} joined the chat`);
+            } else if (data.type === 'user_left') {
+                showSystemMessage(`${data.username} left the chat`);
+            }
+        };
+        
+        chatSocket.onclose = () => {
+            console.log('WebSocket disconnected');
+            showConnectionError();
+            // Reconnect after 3 seconds
+            setTimeout(connectWebSocket, 3000);
+        };
+        
+        chatSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+    }
+    
+    connectWebSocket();
+    
+    // Send message
     function sendMessage() {
-        const messageInput = document.getElementById('message-input');
-        const message = messageInput.value.trim();
-
+        const input = document.getElementById('message-input');
+        const message = input.value.trim();
+        
         if (!message) return;
-
-        fetch('/send-chat-message/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                room_id: roomId,
-                message_type: 'text',
-                content: message
-            })
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    messageInput.value = '';
-                    appendMessage(data.message, true);
-                    scrollToBottom();
-                } else {
-                    showNotification(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showNotification('Error sending message', 'error');
-            });
+        
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            chatSocket.send(JSON.stringify({
+                message: message,
+                message_type: 'text'
+            }));
+            
+            input.value = '';
+            input.focus();
+        } else {
+            showNotification('Connection lost. Reconnecting...', 'error');
+        }
     }
-
-    // Share item
-    function shareItem(itemId, quantity) {
-        fetch('/send-chat-message/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                room_id: roomId,
-                message_type: 'item_share',
-                item_id: itemId,
-                quantity: quantity
-            })
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    appendMessage(data.message, true);
-                    scrollToBottom();
-                    closeModal();
-                    showNotification('Item shared successfully!', 'success');
-                } else {
-                    showNotification(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showNotification('Error sharing item', 'error');
-            });
-    }
-
+    
     // Append message to chat
     function appendMessage(messageData, isOwn = false) {
         const messagesContainer = document.getElementById('chat-messages');
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${isOwn ? 'own' : ''} ${messageData.message_type}`;
+        
+        // Escape HTML helper
+        const escapeHtml = (unsafe) => {
+            if (!unsafe) return '';
+            const div = document.createElement('div');
+            div.textContent = unsafe;
+            return div.innerHTML;
+        };
+        
+        const username = escapeHtml(messageData.user);
+        const timestamp = escapeHtml(messageData.timestamp);
+        const messageType = messageData.message_type || 'text';
+        
+        messageDiv.className = `message ${isOwn ? 'own' : ''} ${escapeHtml(messageType)}`;
 
         let messageContent = '';
-        if (messageData.message_type === 'item_share' && messageData.shared_item) {
+        if (messageData.message_type === 'shared_item' && messageData.shared_item) {
+            const itemEmoji = escapeHtml(messageData.shared_item.emoji);
+            const content = escapeHtml(messageData.content);
+            const itemName = escapeHtml(messageData.shared_item.name);
             messageContent = `
             <div class="shared-item">
-                <span class="item-emoji">${messageData.shared_item.emoji}</span>
-                <span class="item-text">${messageData.content}</span>
+                <span class="item-emoji">${itemEmoji}</span>
+                <span class="item-text">${content}</span>
                 <div class="item-details">
-                    <small>${messageData.shared_item.name} x${messageData.shared_item.quantity}</small>
+                    <small>${itemName}</small>
                 </div>
             </div>
         `;
         } else if (messageData.message_type === 'system') {
-            messageContent = `<em>${messageData.content}</em>`;
+            messageContent = `<em>${escapeHtml(messageData.content)}</em>`;
         } else {
-            messageContent = messageData.content;
+            messageContent = escapeHtml(messageData.content);
         }
 
         messageDiv.innerHTML = `
         <div class="message-header">
-            <span class="username">${messageData.user}</span>
-            <span class="timestamp">${messageData.timestamp}</span>
+            <span class="username">${username}</span>
+            <span class="timestamp">${timestamp}</span>
         </div>
         <div class="message-content">
             ${messageContent}
@@ -198,219 +262,814 @@
     `;
 
         messagesContainer.appendChild(messageDiv);
+        scrollToBottom();
     }
-
-    // Scroll to bottom
+    
+    function showSystemMessage(text) {
+        appendMessage({
+            user: 'System',
+            content: text,
+            timestamp: formatIST(),
+            message_type: 'system'
+        }, false);
+    }
+    
     function scrollToBottom() {
         const messagesContainer = document.getElementById('chat-messages');
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+    
+    function showConnectionError() {
+        const notice = document.createElement('div');
+        notice.id = 'connection-error';
+        notice.className = 'connection-error';
+        notice.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Connection lost. Reconnecting...';
+        document.body.appendChild(notice);
+    }
+    
+    function hideConnectionError() {
+        const notice = document.getElementById('connection-error');
+        if (notice) notice.remove();
+    }
+    
+    // Event listeners
+    document.getElementById('send-button').addEventListener('click', sendMessage);
+    document.getElementById('message-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+    
+    // Invite modal
+    const inviteBtn = document.getElementById('show-invite-btn');
+    function getCsrfToken() {
+        const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        if (m) return decodeURIComponent(m[1]);
+        const el = document.querySelector('[name=csrfmiddlewaretoken]');
+        return el ? el.value : '';
+    }
 
-    // Modal controls
+    async function generateInviteLink() {
+        const input = document.getElementById('invite-link-input');
+        const help = document.getElementById('invite-help');
+        input.value = '';
+        input.placeholder = 'Generating link…';
+        try {
+            const body = new URLSearchParams({ max_uses: '10', expires_in_days: '7' });
+            const resp = await fetch('{% url "create_bench_invite" room.room_id %}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCsrfToken(), 'Content-Type': 'application/x-www-form-urlencoded' },
+                credentials: 'same-origin',
+                body
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'Could not create invite');
+            input.value = data.invite_url;
+            help.textContent = `Anyone with this link can join (up to ${data.max_uses} uses, expires ${data.expires_at}).`;
+        } catch (err) {
+            input.placeholder = 'Could not create link';
+            showNotification(err.message || 'Could not create invite', 'error');
+        }
+    }
+
+    if (inviteBtn) {
+        inviteBtn.addEventListener('click', async () => {
+            const modal = document.getElementById('invite-modal');
+            modal.style.display = 'flex';
+            modal.setAttribute('aria-hidden', 'false');
+            if (!document.getElementById('invite-link-input').value) {
+                await generateInviteLink();
+            }
+            document.getElementById('invite-link-input').select();
+        });
+        document.getElementById('new-invite-btn').addEventListener('click', generateInviteLink);
+    }
+    
+    function closeInviteModal() {
+        const modal = document.getElementById('invite-modal');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+    }
+    
+    function copyInviteLink() {
+        const input = document.getElementById('invite-link-input');
+        input.select();
+        const done = () => showNotification('Invite link copied!', 'success');
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(input.value).then(done, () => { document.execCommand('copy'); done(); });
+        } else {
+            document.execCommand('copy');
+            done();
+        }
+    }
+    
+    // Share modal
     const modal = document.getElementById('share-modal');
     const shareBtn = document.getElementById('share-item-btn');
-    const closeBtn = document.getElementsByClassName('close')[0];
-
-    shareBtn.onclick = function () {
-        modal.style.display = 'block';
-    }
-
-    closeBtn.onclick = function () {
-        modal.style.display = 'none';
-    }
-
+    const closeBtn = modal.querySelector('.modal-close');
+    
+    shareBtn.onclick = () => {
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+    };
+    
+    closeBtn.onclick = closeModal;
+    
     function closeModal() {
         modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
     }
-
-    window.onclick = function (event) {
-        if (event.target == modal) {
-            modal.style.display = 'none';
+    
+    window.onclick = (event) => {
+        if (event.target.classList.contains('modal')) {
+            event.target.style.display = 'none';
+            event.target.setAttribute('aria-hidden', 'true');
         }
-    }
-
-    // Share item button handlers
+    };
+    
+    // Escape key closes modals
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            });
+        }
+    });
+    
+    // Share item handlers
     document.querySelectorAll('.share-btn').forEach(btn => {
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', function() {
             const itemDiv = this.closest('.shareable-item');
-            const itemId = itemDiv.getAttribute('data-item-id');
-            margin: 0 auto;
-            height: 80vh;
-            display: flex;
-            flex - direction: column;
-            background: var(--surface - color);
-            border - radius: var(--border - radius);
-            overflow: hidden;
-            border: 1px solid var(--border - color);
+            const itemId = itemDiv.dataset.itemId;
+            const quantity = itemDiv.querySelector('.share-quantity').value;
+            
+            shareItem(itemId, quantity);
+        });
+    });
+    
+    function shareItem(itemId, quantity) {
+        fetch(`/share-item/${roomId}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                item_id: itemId,
+                quantity: quantity
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Item shared successfully!', 'success');
+                closeModal();
+            } else {
+                showNotification(data.message || 'Failed to share item', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('Failed to share item', 'error');
+        });
+    }
+    
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
         }
+        return cookieValue;
+    }
+    
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type} show`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
 
-            .chat - header {
-                background: var(--primary - color);
-        padding: 1rem;
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    }
+</script>
+
+<style>
+    /* Chat Room Specific Styles with Mobile-First Responsive Design */
+    .chat-room-container {
         display: flex;
+        flex-direction: column;
+        height: calc(100vh - 60px); /* Account for nav */
+        max-height: calc(100vh - 60px);
+        background: var(--background-color);
+    }
+    
+    .chat-header {
+        background: linear-gradient(135deg, #8b5e34 0%, #6d4423 100%);
+        padding: 0.75rem 1rem;
+        border-bottom: 2px solid var(--accent-color);
+        flex-shrink: 0;
+    }
+    
+    .room-info h2 {
+        font-size: 1.1rem;
+        margin: 0 0 0.5rem 0;
+        color: white;
         display: flex;
-        flex - direction: column;
-        gap: 1rem;
-    }
-
-    .message {
-        max- width: 70 %;
-    background: rgba(45, 45, 45, 0.8);
-    padding: 1rem;
-    border - radius: var(--border - radius);
-    border - left: 4px solid var(--secondary - color);
-    }
-
-    .message.own {
-        align - self: flex - end;
-        background: var(--primary - color);
-        border - left: 4px solid var(--accent - color);
-    }
-
-    .message.system {
-        align - self: center;
-        background: rgba(255, 255, 255, 0.1);
-        border - left: 4px solid #888;
-        font - style: italic;
-        text - align: center;
-    }
-
-    .message.item_share {
-        background: linear - gradient(135deg, var(--primary - color), var(--secondary - color));
-        border - left: 4px solid var(--accent - color);
-    }
-
-    .shared - item {
-        display: flex;
-        align - items: center;
+        align-items: center;
         gap: 0.5rem;
     }
-
-    .item - emoji {
-        font - size: 1.5rem;
+    
+    .room-name-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
-
-    .item - details {
-        margin - left: auto;
-        color: rgba(255, 255, 255, 0.8);
-    }
-
-    .chat - input - container {
-        padding: 1rem;
-        border - top: 1px solid var(--border - color);
-        background: rgba(45, 45, 45, 0.5);
-    }
-
-    .chat - input {
+    
+    .room-meta {
         display: flex;
-        gap: 1rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.85rem;
     }
-
-    #message - input {
+    
+    .meta-item {
+        background: rgba(255,255,255,0.15);
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        color: white;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .room-type-badge {
+        background: rgba(255,179,71,0.3);
+        font-weight: 600;
+    }
+    
+    .anonymous-badge {
+        background: rgba(255,107,107,0.3);
+    }
+    
+    .chat-controls {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+        flex-wrap: wrap;
+    }
+    
+    .chat-controls .btn {
+        font-size: 0.85rem;
+        padding: 0.4rem 0.8rem;
+        white-space: nowrap;
+    }
+    
+    .chat-controls .btn-danger {
+        background: #dc3545;
+        color: white;
+        border: none;
+    }
+    
+    .chat-controls .btn-danger:hover {
+        background: #c82333;
+    }
+    
+    .chat-messages {
         flex: 1;
-        padding: 0.75rem;
-        border: 1px solid var(--border - color);
-        border - radius: var(--border - radius);
-        background: var(--surface - color);
-        color: var(--text - color);
+        overflow-y: auto;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        background: var(--background-color);
     }
-
+    
+    .message {
+        max-width: 75%;
+        background: rgba(45, 45, 45, 0.9);
+        padding: 0.75rem;
+        border-radius: 12px;
+        border-left: 3px solid var(--secondary-color);
+        animation: fadeIn 0.2s ease;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .message.own {
+        align-self: flex-end;
+        background: linear-gradient(135deg, #8b5e34 0%, #6d4423 100%);
+        border-left: 3px solid var(--accent-color);
+    }
+    
+    .message.system {
+        align-self: center;
+        max-width: 90%;
+        background: rgba(255,179,71,0.15);
+        border-left: 3px solid var(--accent-color);
+        text-align: center;
+        font-style: italic;
+        color: var(--accent-color);
+    }
+    
+    .message-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+        gap: 0.5rem;
+    }
+    
+    .username {
+        font-weight: 600;
+        color: var(--accent-color);
+        font-size: 0.9rem;
+    }
+    
+    .timestamp {
+        color: rgba(255,255,255,0.6);
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+    
+    .message-content {
+        color: white;
+        line-height: 1.5;
+        word-wrap: break-word;
+    }
+    
+    .shared-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.5rem;
+        background: rgba(255,179,71,0.15);
+        border-radius: 8px;
+    }
+    
+    .item-emoji {
+        font-size: 2rem;
+    }
+    
+    .item-text {
+        font-weight: 500;
+    }
+    
+    .item-details {
+        margin-top: 0.25rem;
+        opacity: 0.8;
+        font-size: 0.85rem;
+    }
+    
+    .chat-input-container {
+        background: rgba(45, 45, 45, 0.95);
+        border-top: 2px solid var(--border-color);
+        padding: 0.75rem 1rem;
+        flex-shrink: 0;
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+    }
+    
+    .chat-input {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+    }
+    
+    #message-input {
+        flex: 1;
+        padding: 0.75rem 1rem;
+        border: 2px solid var(--border-color);
+        border-radius: 24px;
+        background: var(--surface-color);
+        color: var(--text-color);
+        font-size: 1rem;
+        transition: border-color 0.3s;
+    }
+    
+    #message-input:focus {
+        outline: none;
+        border-color: var(--accent-color);
+    }
+    
+    #send-button {
+        padding: 0.75rem 1.25rem;
+        border-radius: 24px;
+        background: var(--accent-color);
+        color: var(--background-color);
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        flex-shrink: 0;
+    }
+    
+    #send-button:hover {
+        background: #f4a460;
+        transform: scale(1.05);
+    }
+    
+    .auto-expire-notice {
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        background: rgba(255,179,71,0.9);
+        color: var(--background-color);
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        z-index: 100;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    
+    .connection-error {
+        position: fixed;
+        top: 70px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #dc3545;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        animation: slideDown 0.3s ease;
+    }
+    
+    @keyframes slideDown {
+        from { transform: translate(-50%, -100%); }
+        to { transform: translate(-50%, 0); }
+    }
+    
+    /* Modern Modal Styles */
     .modal {
         display: none;
         position: fixed;
-        z - index: 1000;
-        left: 0;
         top: 0;
-        width: 100 %;
-        height: 100 %;
-        background - color: rgba(0, 0, 0, 0.5);
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+        padding: 1rem;
     }
-
-    .modal - content {
-        background - color: var(--surface - color);
-        margin: 15 % auto;
+    
+    .modern-modal {
+        background: var(--surface-color);
+        border-radius: 16px;
         padding: 2rem;
-        border - radius: var(--border - radius);
-        width: 80 %;
-        max - width: 500px;
+        max-width: 500px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
         position: relative;
     }
-
-    .close {
+    
+    .modal-close {
         position: absolute;
         top: 1rem;
         right: 1rem;
-        font - size: 2rem;
+        background: transparent;
+        border: none;
+        font-size: 2rem;
+        color: var(--text-secondary);
         cursor: pointer;
-        color: var(--text - secondary);
-    }
-
-    .shareable - items {
+        line-height: 1;
+        padding: 0;
+        width: 32px;
+        height: 32px;
         display: flex;
-        flex - direction: column;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: all 0.3s;
+    }
+    
+    .modal-close:hover {
+        background: rgba(255,255,255,0.1);
+        color: white;
+    }
+    
+    .modern-modal h3 {
+        margin: 0 0 1.5rem 0;
+        color: var(--accent-color);
+        font-size: 1.5rem;
+    }
+    
+    .invite-link-container label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: var(--text-color);
+        font-weight: 500;
+    }
+    
+    .input-group {
+        display: flex;
+        gap: 0.5rem;
+    }
+    
+    .input-group input {
+        flex: 1;
+        padding: 0.75rem;
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--background-color);
+        color: var(--text-color);
+        font-size: 0.9rem;
+    }
+    
+    .help-text {
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+    
+    .shareable-items {
+        display: flex;
+        flex-direction: column;
         gap: 1rem;
     }
-
-    .shareable - item {
+    
+    .shareable-item {
         display: flex;
-        justify - content: space - between;
-        align - items: center;
+        justify-content: space-between;
+        align-items: center;
         padding: 1rem;
-        background: rgba(45, 45, 45, 0.5);
-        border - radius: 8px;
+        background: rgba(45,45,45,0.5);
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
     }
-
-    .item - info {
+    
+    .shareable-item .item-info {
         display: flex;
-        align - items: center;
-        gap: 0.5rem;
+        align-items: center;
+        gap: 1rem;
     }
-
-    .share - controls {
+    
+    .shareable-item .item-emoji {
+        font-size: 2.5rem;
+    }
+    
+    .shareable-item .item-details {
         display: flex;
-        align - items: center;
-        gap: 0.5rem;
+        flex-direction: column;
     }
-
-    .share - quantity {
+    
+    .shareable-item .item-name {
+        font-weight: 600;
+        color: white;
+        font-size: 1.1rem;
+    }
+    
+    .shareable-item .item-quantity {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+    
+    .share-controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    
+    .share-quantity {
         width: 60px;
-        padding: 0.25rem;
-        border: 1px solid var(--border - color);
-        border - radius: 4px;
-        background: var(--background - color);
-        color: var(--text - color);
+        padding: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--background-color);
+        color: var(--text-color);
+        text-align: center;
     }
-
-    .auto - expire - notice {
+    
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+    }
+    
+    .empty-state i {
+        font-size: 3rem;
+        color: var(--accent-color);
+        margin-bottom: 1rem;
+    }
+    
+    .empty-state p {
+        margin-bottom: 1rem;
+        color: var(--text-secondary);
+    }
+    
+    .notification {
         position: fixed;
-        bottom: 20px;
+        top: 80px;
         right: 20px;
-        background: rgba(0, 0, 0, 0.8);
-        color: var(--accent - color);
-        padding: 0.5rem 1rem;
-        border - radius: 20px;
-        font - size: 0.8rem;
-        z - index: 100;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        background: var(--surface-color);
+        color: white;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 10000;
+        opacity: 0;
+        transform: translateX(400px);
+        transition: all 0.3s ease;
     }
-
-    @media(max - width: 768px) {
-        .chat - room - container {
-            height: 70vh;
+    
+    .notification.show {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    
+    .notification.success {
+        background: #28a745;
+    }
+    
+    .notification.error {
+        background: #dc3545;
+    }
+    
+    .notification.info {
+        background: #17a2b8;
+    }
+    
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+        .chat-room-container {
+            height: calc(100vh - 50px);
+            max-height: calc(100vh - 50px);
         }
-
-        .chat - header {
-            flex - direction: column;
-            gap: 1rem;
+        
+        .chat-header {
+            padding: 0.5rem 0.75rem;
         }
-
+        
+        .room-info h2 {
+            font-size: 1rem;
+        }
+        
+        .room-info h2 i {
+            font-size: 0.9rem;
+        }
+        
+        .room-meta {
+            font-size: 0.75rem;
+            gap: 0.35rem;
+        }
+        
+        .meta-item {
+            padding: 0.2rem 0.4rem;
+            font-size: 0.7rem;
+        }
+        
+        .chat-controls {
+            gap: 0.4rem;
+            margin-top: 0.5rem;
+        }
+        
+        .btn-text {
+            display: none;
+        }
+        
+        .chat-controls .btn {
+            padding: 0.5rem;
+            font-size: 0.85rem;
+        }
+        
+        .chat-messages {
+            padding: 0.75rem;
+            gap: 0.5rem;
+        }
+        
         .message {
-            max - width: 90 %;
+            max-width: 85%;
+            padding: 0.6rem;
+            font-size: 0.95rem;
         }
-
-        .modal - content {
-            width: 95 %;
-            margin: 10 % auto;
+        
+        .message-header {
+            margin-bottom: 0.35rem;
+        }
+        
+        .username {
+            font-size: 0.85rem;
+        }
+        
+        .timestamp {
+            font-size: 0.7rem;
+        }
+        
+        .chat-input-container {
+            padding: 0.6rem 0.75rem;
+        }
+        
+        .chat-input {
+            gap: 0.5rem;
+        }
+        
+        #message-input {
+            padding: 0.6rem 0.9rem;
+            font-size: 0.95rem;
+        }
+        
+        #send-button {
+            padding: 0.6rem 1rem;
+        }
+        
+        #send-button i {
+            font-size: 1rem;
+        }
+        
+        .auto-expire-notice {
+            bottom: 70px;
+            right: 10px;
+            font-size: 0.75rem;
+            padding: 0.4rem 0.8rem;
+        }
+        
+        .modern-modal {
+            padding: 1.5rem;
+            margin: 1rem;
+        }
+        
+        .modern-modal h3 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        
+        .shareable-item {
+            flex-direction: column;
+            gap: 1rem;
+            align-items: stretch;
+        }
+        
+        .share-controls {
+            justify-content: flex-end;
         }
     }
-</style >
-        {% endblock %}
+    
+    @media (max-width: 480px) {
+        .chat-room-container {
+            height: 100vh;
+            max-height: 100vh;
+        }
+        
+        .message {
+            max-width: 90%;
+        }
+        
+        .item-emoji {
+            font-size: 1.5rem !important;
+        }
+        
+        .shareable-item .item-emoji {
+            font-size: 2rem !important;
+        }
+    }
+
+    /* Phone fit: the global "@media (max-width:480px) .btn {width:100%; max-width:300px}"
+       and ".btn {min-width:120px}" made the send button 300px wide, which pushed the page to
+       607px, zoomed the layout out and put the input + modal close below the fold. */
+    @media (max-width: 768px) {
+        .chat-room-container {
+            /* nav (70px) + .main-content vertical padding (2 x 1rem) */
+            height: calc(100vh - 70px - 2rem);
+            height: calc(100dvh - 70px - 2rem);
+            max-height: none;
+            min-height: 320px;
+        }
+        .chat-input { min-width: 0; }
+        .input-group input { min-width: 0; flex: 1; }
+        #message-input { min-width: 0; width: auto; }
+        #send-button,
+        .chat-controls .btn,
+        .invite-link-container .btn {
+            width: auto;
+            min-width: 44px;
+            max-width: none;
+        }
+        #send-button { min-height: 44px; }
+        .chat-controls { flex-wrap: wrap; }
+        .auto-expire-notice { bottom: calc(env(safe-area-inset-bottom, 0px) + 124px); }
+        #invite-modal .modern-modal { max-width: calc(100vw - 2rem); box-sizing: border-box; }
+    }
+</style>
+{% endblock %}

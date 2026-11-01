@@ -214,6 +214,19 @@ body {
     transform: translateY(-2px);
 }
 
+.btn-danger {
+    /* white on #B02A37 = 6.4:1 (WCAG AA) */
+    background: #B02A37;
+    color: #ffffff;
+}
+
+.btn-danger:hover,
+.btn-danger:focus-visible {
+    background: #8E1F2A;
+    color: #ffffff;
+    transform: translateY(-2px);
+}
+
 .btn-sm {
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
@@ -1189,7 +1202,8 @@ input:checked + .slider:before {
 
 .section-header h4 {
     margin: 0;
-    color: var(--secondary-color);
+    /* #F4A460 on the dark panel: >= 7:1 (was #D2691E, 3.8:1 - failed WCAG AA) */
+    color: #F4A460;
     font-size: 1rem;
 }
 
@@ -1412,6 +1426,13 @@ input:checked + .slider:before {
 .audio-control-panel::-webkit-scrollbar-thumb:hover {
     background: var(--primary-color);
 }
+
+/* Raise audio panel above theatre view */
+.theatre-app .audio-control-panel,
+body:has(.theatre-app) .audio-control-panel {
+    z-index: 10001 !important;
+}
+
 /* Enhanced Lightning and Thunder Effects */
 .lightning-container {
     position: fixed;

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Manage Rooms - Admin{% endblock %}
+{% block content %}
+<div class="admin-container">
+    <div class="admin-header">
+        <h1><i class="fas fa-comments"></i> Manage Rooms</h1>
+        <a href="{% url 'custom_admin_dashboard' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Dashboard</a>
+    </div>
+    <div class="filters-card">
+        <form method="get" class="filters-form">
+            <select name="type" class="form-control">
+                <option value="">All Types</option>
+                <option value="stranger" {% if room_type == 'stranger' %}selected{% endif %}>Stranger Chat</option>
+                <option value="bench" {% if room_type == 'bench' %}selected{% endif %}>Bench</option>
+                <option value="theatre" {% if room_type == 'theatre' %}selected{% endif %}>Theatre</option>
+            </select>
+            <select name="status" class="form-control">
+                <option value="">All Status</option>
+                <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+                <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Closed</option>
+            </select>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Filter</button>
+        </form>
+    </div>
+    <div class="items-table-wrapper" style="overflow-x: auto;">
+        <table class="items-table">
+            <thead>
+                <tr><th>Name/Type</th><th>Type</th><th>Participants</th><th>Created</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                {% for room in rooms %}
+                <tr>
+                    <td>{{ room.name|default:room.room_type }}</td>
+                    <td>{{ room.get_room_type_display }}</td>
+                    <td>{{ room.participant_count }}</td>
+                    <td>{{ room.created_at|timesince }} ago</td>
+                    <td>
+                        <span class="badge {% if room.is_active %}badge-success{% else %}badge-secondary{% endif %}">
+                            {% if room.is_active %}Active{% else %}Closed{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        {% if room.is_active %}
+                        <form method="post" action="{% url 'close_room' room.room_id %}" style="display:inline;" onsubmit="return confirm('Close this room?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-times"></i></button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" style="text-align:center;padding:2rem;">No rooms found</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
