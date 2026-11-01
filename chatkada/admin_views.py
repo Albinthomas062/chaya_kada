@@ -19,85 +19,18 @@ from .models import (
 )
 from .forms import ItemForm
 
-# Login attempt tracking (use cache - Redis in production)
-MAX_ATTEMPTS = 5
-LOCKOUT_DURATION = 900  # 15 minutes in seconds
+from . import login_throttle
+
+# Login attempt tracking (see chatkada/login_throttle.py)
+MAX_ATTEMPTS = login_throttle.MAX_ATTEMPTS
+LOCKOUT_DURATION = login_throttle.LOCKOUT_SECONDS
+ADMIN_SCOPE = 'admin'
+get_client_ip = login_throttle.get_client_ip
 
 
 def is_staff_user(user):
     """Check if user is staff"""
     return user.is_staff or user.is_superuser
-
-
-def get_client_ip(request):
-    """Get client IP address from request (non-spoofable)"""
-    # Use REMOTE_ADDR which is set by the web server
-    # Daphne with --proxy-headers already sets REMOTE_ADDR from X-Forwarded-For
-    # behind trusted proxies
-    return request.META.get('REMOTE_ADDR', '0.0.0.0')
-
-
-def get_lockout_key(username, ip_address):
-    """Generate cache keys for lockout tracking"""
-    # Key by username+IP for hard lockout, username-only for soft limit
-    return {
-        'hard': f'login_attempts_{username}_{ip_address}',  # Hard lock at MAX_ATTEMPTS
-        'soft': f'login_attempts_user_{username}'           # Soft limit at higher threshold
-    }
-
-
-def check_login_attempts(username, ip_address):
-    """Check if user is locked out due to failed attempts"""
-    keys = get_lockout_key(username, ip_address)
-    
-    # Hard lockout: username+IP combo (prevents brute force from one IP)
-    hard_key = keys['hard']
-    attempts_data = cache.get(hard_key)
-    if attempts_data:
-        attempts, last_attempt = attempts_data
-        if attempts >= MAX_ATTEMPTS:
-            if time.time() - last_attempt < LOCKOUT_DURATION:
-                return False, MAX_ATTEMPTS - attempts
-    
-    # Soft limit: username-only (prevents account enumeration, but higher threshold)
-    soft_key = keys['soft']
-    soft_attempts_data = cache.get(soft_key)
-    if soft_attempts_data:
-        attempts, last_attempt = soft_attempts_data
-        # Higher threshold (20) for username-only, just slows down, not hard lock
-        if attempts >= 20:
-            if time.time() - last_attempt < LOCKOUT_DURATION:
-                return False, 20 - attempts
-    
-    return True, 0
-
-
-def record_login_attempt(username, ip_address, success=False):
-    """Record a login attempt"""
-    keys = get_lockout_key(username, ip_address)
-    
-    if success:
-        # Clear both keys on success
-        cache.delete(keys['hard'])
-        cache.delete(keys['soft'])
-    else:
-        # Increment hard lockout counter (username+IP)
-        hard_key = keys['hard']
-        attempts_data = cache.get(hard_key)
-        if attempts_data:
-            attempts, _ = attempts_data
-            cache.set(hard_key, [attempts + 1, time.time()], LOCKOUT_DURATION)
-        else:
-            cache.set(hard_key, [1, time.time()], LOCKOUT_DURATION)
-        
-        # Increment soft limit counter (username-only)
-        soft_key = keys['soft']
-        soft_attempts_data = cache.get(soft_key)
-        if soft_attempts_data:
-            attempts, _ = soft_attempts_data
-            cache.set(soft_key, [attempts + 1, time.time()], LOCKOUT_DURATION)
-        else:
-            cache.set(soft_key, [1, time.time()], LOCKOUT_DURATION)
 
 
 def custom_admin_login(request):
@@ -120,8 +53,7 @@ def custom_admin_login(request):
         ip_address = get_client_ip(request)
         
         # Check rate limiting
-        allowed, remaining = check_login_attempts(username, ip_address)
-        if not allowed:
+        if login_throttle.is_locked(ADMIN_SCOPE, username, ip_address):
             messages.error(
                 request, 
                 f"Account temporarily locked due to too many failed attempts. "
@@ -134,7 +66,7 @@ def custom_admin_login(request):
         
         if user is not None and is_staff_user(user):
             login(request, user)
-            record_login_attempt(username, ip_address, success=True)
+            login_throttle.record_success(ADMIN_SCOPE, username, ip_address)
             
             # Handle 'next' parameter safely (prevent open redirects)
             next_url = request.POST.get('next') or request.GET.get('next', '')
@@ -146,20 +78,12 @@ def custom_admin_login(request):
                 return redirect(next_url)
             return redirect('custom_admin_dashboard')
         else:
-            record_login_attempt(username, ip_address, success=False)
-            
-            # Check remaining attempts from either key
-            keys = get_lockout_key(username, ip_address)
-            attempts_left = MAX_ATTEMPTS
-            for key in keys:
-                attempts_data = cache.get(key)
-                if attempts_data:
-                    attempts_left = min(attempts_left, MAX_ATTEMPTS - attempts_data[0])
-            
+            attempts_left = login_throttle.record_failure(ADMIN_SCOPE, username, ip_address)
+
             if attempts_left > 0:
                 messages.error(
                     request, 
-                    f"Invalid credentials or not a staff user. {attempts_left} attempts remaining."
+                    f"Invalid credentials or not a staff user. {attempts_left} attempt{'' if attempts_left == 1 else 's'} remaining."
                 )
             else:
                 messages.error(

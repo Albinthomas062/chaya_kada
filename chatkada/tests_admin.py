@@ -1,4 +1,4 @@
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -106,6 +106,40 @@ class AdminLoginTests(TestCase):
             'password': 'correct'
         })
         self.assertContains(response, 'locked')
+
+    def _post(self, password, ip):
+        return Client(REMOTE_ADDR=ip).post(reverse('custom_admin_login'), {
+            'username': 'admin', 'password': password})
+
+    def test_attempts_remaining_counts_down(self):
+        """Issue 7: real remaining count, not always 5."""
+        for expected in (4, 3, 2, 1):
+            r = self._post('wrong', '10.2.0.1')
+            word = 'attempt' if expected == 1 else 'attempts'
+            self.assertContains(r, f'{expected} {word} remaining')
+        r = self._post('wrong', '10.2.0.1')
+        self.assertContains(r, 'locked')
+        self.assertNotContains(r, 'attempts remaining')
+
+    def test_attempts_remaining_is_per_ip(self):
+        for _ in range(3):
+            self._post('wrong', '10.2.0.1')
+        self.assertContains(self._post('wrong', '10.2.0.2'), '4 attempts remaining')
+
+    @override_settings(LOGIN_SOFT_DELAY_SECONDS=0)
+    def test_twenty_ips_do_not_lock_admin(self):
+        """Issue 3: 20+ failures from 20 IPs must not globally lock the account."""
+        for i in range(25):
+            self._post('wrong', f'10.3.0.{i}')
+        r = self._post('correct', '10.4.4.4')
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r.url, reverse('custom_admin_dashboard'))
+
+    def test_locked_ip_does_not_lock_other_ip(self):
+        for _ in range(6):
+            self._post('wrong', '10.5.0.1')
+        self.assertContains(self._post('correct', '10.5.0.1'), 'locked')
+        self.assertEqual(self._post('correct', '10.5.0.2').status_code, 302)
 
 
 class ItemCRUDTests(TestCase):
