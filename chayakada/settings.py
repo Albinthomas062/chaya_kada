@@ -120,6 +120,9 @@ CHANNEL_LAYERS = {
         },
     },
 }
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    # Tests must not publish into the live Redis channel layer
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -194,7 +197,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'  # IST: server-rendered times + 'today' for streaks/challenges
 
 USE_I18N = True
 

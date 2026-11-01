@@ -465,7 +465,7 @@ def manage_challenges(request):
     challenges = DailyChallenge.objects.select_related('user').order_by('-completed_date')[:100]
     
     # Stats
-    today = timezone.now().date()
+    today = timezone.localdate()
     today_completed = DailyChallenge.objects.filter(completed_date=today).count()  # Having a record means completed
     today_total = DailyChallenge.objects.filter(completed_date=today).count()
     completion_rate = (today_completed / today_total * 100) if today_total > 0 else 0
@@ -490,7 +490,7 @@ def assign_challenge(request):
         if form.is_valid():
             challenge_type = form.cleaned_data["challenge_type"]
             coins_earned = form.cleaned_data["coins_earned"]
-            today = timezone.now().date()
+            today = timezone.localdate()
             created = 0
             
             for user in User.objects.filter(is_active=True):
@@ -526,7 +526,7 @@ def analytics_dashboard(request):
     from .models import AnalyticsEvent, Purchase, ChatRoom, CoinTransaction
     
     now = timezone.now()
-    today = now.date()
+    today = timezone.localdate(now)
     yesterday = today - timedelta(days=1)
     week_ago = now - timedelta(days=7)
     

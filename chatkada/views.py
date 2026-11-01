@@ -177,24 +177,28 @@ def profile(request):
 
 
 @login_required
+@transaction.atomic
 def check_daily_login(request):
-    """Check and reward daily login bonus"""
-    profile = request.user.userprofile
-    today = date.today()
+    """Check and reward daily login bonus (once per IST day, consecutive-day streak)"""
+    # Row lock so a double request can't award the bonus twice
+    profile = UserProfile.objects.select_for_update().get(user=request.user)
+    today = timezone.localdate()
     
     # Check if user already got login bonus today
     if profile.last_login_date != today:
         # Award daily login bonus
         coins_earned = 25
+        previous_login_date = profile.last_login_date
+
+        # Update streak BEFORE overwriting last_login_date (consecutive IST days)
+        if previous_login_date == today - timedelta(days=1):
+            profile.login_streak = (profile.login_streak or 0) + 1
+        else:
+            profile.login_streak = 1
+
         profile.coins += coins_earned
         profile.total_coins_earned += coins_earned
         profile.last_login_date = today
-        
-        # Update streak
-        if profile.last_login_date == today - timedelta(days=1):
-            profile.login_streak += 1
-        else:
-            profile.login_streak = 1
         
         profile.save()
         
@@ -238,7 +242,7 @@ def record_chat_friend(request):
         try:
             friend = User.objects.get(username=friend_username)
             profile = request.user.userprofile
-            today = date.today()
+            today = timezone.localdate()
             
             # Reset daily count if it's a new day
             if profile.friends_challenge_date != today:
@@ -317,7 +321,7 @@ def record_chat_friend(request):
 def coin_center(request):
     """Dedicated coin management and challenge center"""
     profile = request.user.userprofile
-    today = date.today()
+    today = timezone.localdate()
     
     # Get today's challenges status
     daily_login_completed = DailyChallenge.objects.filter(
@@ -390,7 +394,7 @@ def coin_center(request):
 def get_coin_progress(request):
     """API endpoint for coin progress (for navigation bar)"""
     profile = request.user.userprofile
-    today = date.today()
+    today = timezone.localdate()
     
     # Check challenge status
     daily_login_completed = DailyChallenge.objects.filter(
@@ -1553,7 +1557,7 @@ def assign_challenge(request):
         if form.is_valid():
             challenge_type = form.cleaned_data["challenge_type"]
             coins_earned = form.cleaned_data["coins_earned"]
-            today = timezone.now().date()
+            today = timezone.localdate()
             created = 0
             for user in User.objects.all():
                 challenges = DailyChallenge.objects.filter(user=user, challenge_type=challenge_type, completed_date=today)
@@ -1580,7 +1584,7 @@ def analytics_dashboard(request):
     from .models import AnalyticsEvent, Purchase, ChatRoom, CoinTransaction
     
     now = timezone.now()
-    today = now.date()
+    today = timezone.localdate(now)
     yesterday = today - timedelta(days=1)
     week_ago = now - timedelta(days=7)
     
