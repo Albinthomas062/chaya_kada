@@ -143,6 +143,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return None
 
 class TheatreConsumer(AsyncWebsocketConsumer):
+    SEAT_COUNT = 10
+    ALLOWED_REACTIONS = {'❤️', '😂', '😮', '👏', '☕'}
+
     async def connect(self):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'theatre_{self.room_name}'
@@ -190,14 +193,22 @@ class TheatreConsumer(AsyncWebsocketConsumer):
         )
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
+        try:
+            data = json.loads(text_data)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
         action = data.get('action')
 
         if action == 'chat_message':
             message = data.get('message')
+            if isinstance(message, str):
+                message = message.strip()[:500]
             if message and self.user.is_authenticated:
                 # Get user avatar safely
                 user_avatar = await self.get_user_avatar()
+                now = timezone.now()
                 
                 await self.channel_layer.group_send(
                     self.room_group_name,
@@ -205,12 +216,16 @@ class TheatreConsumer(AsyncWebsocketConsumer):
                         'type': 'chat_message',
                         'message': message,
                         'username': self.user.username,
-                        'avatar': user_avatar
+                        'avatar': user_avatar,
+                        'timestamp': iso_local(now),
+                        'time_display': format_time(now),
                     }
                 )
         
         elif action == 'reaction':
             emoji = data.get('emoji')
+            if emoji not in self.ALLOWED_REACTIONS:
+                return
             if emoji and self.user.is_authenticated:
                 # Rate limit: check last reaction time (simple in-memory check)
                 now = timezone.now().timestamp()
@@ -233,6 +248,12 @@ class TheatreConsumer(AsyncWebsocketConsumer):
         
         elif action == 'take_seat':
             seat_number = data.get('seat_number')
+            # Only real seats 1..10 (prevents creating arbitrary seat rows)
+            if isinstance(seat_number, bool) or not isinstance(seat_number, int) \
+                    or not 1 <= seat_number <= self.SEAT_COUNT:
+                await self.send(text_data=json.dumps({
+                    'action': 'seat_error', 'message': 'Invalid seat'}))
+                return
             if seat_number and self.user.is_authenticated:
                 # Get user avatar safely
                 user_avatar = await self.get_user_avatar()
@@ -302,7 +323,9 @@ class TheatreConsumer(AsyncWebsocketConsumer):
             'action': 'chat_message',
             'message': event['message'],
             'username': event['username'],
-            'avatar': event.get('avatar', '☕')
+            'avatar': event.get('avatar', '☕'),
+            'timestamp': event.get('timestamp', ''),
+            'time_display': event.get('time_display', '')
         }))
 
     async def seat_update(self, event):

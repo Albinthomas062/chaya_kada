@@ -7,6 +7,8 @@
 <div id="theatre-app" class="theatre-app">
     <!-- 3D Canvas -->
     <canvas id="theatre-canvas" class="theatre-canvas"></canvas>
+    <!-- HTML overlays (chat bubbles / reactions) anchored to seats, clamped to the viewport -->
+    <div id="seat-overlay-layer" class="seat-overlay-layer" aria-live="polite"></div>
     
     <!-- 2D Fallback -->
     <div id="fallback-theatre" class="fallback-theatre" style="display: none;">
@@ -18,7 +20,7 @@
                         data-seat="{{ seat.seat_number }}"
                         {% if not seat.occupant %}onclick="takeSeat({{ seat.seat_number }})"{% endif %}>
                     S{{ seat.seat_number }}
-                    {% if seat.occupant %}<br><small>{{ seat.occupant.username }}</small>{% endif %}
+                    {% if seat.occupant %}<br><small title="{{ seat.occupant.username }}">{{ seat.occupant.username|truncatechars:14 }}</small>{% endif %}
                 </button>
                 {% endfor %}
             </div>
@@ -153,6 +155,57 @@
     width: 100%;
     height: 100%;
     touch-action: none;
+}
+
+/* Seat-anchored chat bubbles & reactions (HTML so they can be clamped on-screen) */
+.seat-overlay-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10002;  /* above top bar + chat panel */
+    overflow: hidden;
+}
+.seat-bubble {
+    position: absolute;
+    left: 0;
+    top: 0;
+    max-width: min(260px, calc(100vw - 24px));
+    padding: 0.5rem 0.75rem;
+    background: rgba(212, 175, 55, 0.97);
+    color: #1a0f0a;
+    border: 2px solid #8B5E34;
+    border-radius: 14px;
+    font: 600 0.95rem/1.3 'Inter', Arial, sans-serif;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    transition: opacity 0.4s;
+    will-change: transform;
+}
+.seat-bubble .bubble-user {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    opacity: 0.8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.seat-bubble .bubble-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.seat-reaction {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: 2.2rem;
+    line-height: 1;
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));
+    transition: opacity 0.3s;
+    will-change: transform;
 }
 
 /* Loading Screen */
@@ -601,10 +654,15 @@
     position: fixed;
     top: 5rem;
     right: 1rem;
-    z-index: 10000;
+    z-index: 10003;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    pointer-events: none;  /* toasts are informational; never block seat taps */
+}
+@media (max-width: 768px) {
+    .toast-container { top: auto; bottom: 4.5rem; left: 0.75rem; right: 0.75rem; }
+    .toast { min-width: 0; padding: 0.6rem 1rem; font-size: 0.9rem; }
 }
 
 .toast {
@@ -778,6 +836,14 @@ let currentSeat = null;
 let mouseX = 0, mouseY = 0;
 let targetCameraPos = { x: 0, y: 2, z: 8 };
 let targetCameraLook = { x: 0, y: 1.5, z: 0 };
+// Responsive framing: base camera computed so every seat is on-screen and not
+// under the top bar / chat panel; parallax is a small offset on top of it.
+let cameraBase = null;          // {pos: Vector3, look: Vector3}
+let parallax = { x: 0, y: 0 };
+const IS_COARSE_POINTER = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+const LABEL_MAX_CHARS = 14;
+let seatLabelSprites = [];      // sprite per seat (index = instanceId)
+const activeOverlays = [];      // HTML chat bubbles / reactions anchored to seats
 let theatreSocket = null;
 let hls = null;
 let channels = [];
@@ -877,7 +943,7 @@ function initThreeJS() {
     // Scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0a0a);
-    scene.fog = new THREE.FogExp2(0x0a0a0a, 0.05);
+    scene.fog = new THREE.FogExp2(0x0a0a0a, 0.02);
     
     // Camera
     camera = new THREE.PerspectiveCamera(
@@ -886,8 +952,8 @@ function initThreeJS() {
         0.1,
         100
     );
-    camera.position.set(0, 2, 15);
-    camera.lookAt(0, 1.5, 0);
+    camera.position.set(0, 6, 22);
+    camera.lookAt(0, 1, 4);
     
     // Renderer
     renderer = new THREE.WebGLRenderer({
@@ -914,14 +980,22 @@ function initThreeJS() {
     
     // Event listeners
     window.addEventListener('resize', onWindowResize);
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('touchmove', onTouchMove);
-    canvas.addEventListener('click', onCanvasClick);
-    
-    // Gyroscope for mobile
-    if (window.DeviceOrientationEvent && /Mobi/.test(navigator.userAgent)) {
-        window.addEventListener('deviceorientation', onDeviceOrientation);
+    window.addEventListener('orientationchange', () => setTimeout(onWindowResize, 200));
+    if (!IS_COARSE_POINTER) {
+        // Mouse parallax only: on touch devices the camera must stay still so
+        // that what you see under your finger is what you tap.
+        canvas.addEventListener('mousemove', onMouseMove);
     }
+    // Pointer events cover mouse, touch and pen. A tap = short press without drag.
+    canvas.addEventListener('pointerdown', onCanvasPointerDown);
+    canvas.addEventListener('pointerup', onCanvasPointerUp);
+    // Re-frame when the chat panel opens/closes or resizes
+    const chatPanelEl = document.getElementById('chat-panel');
+    if (chatPanelEl) {
+        chatPanelEl.addEventListener('transitionend', () => frameCamera(false));
+        if (window.ResizeObserver) new ResizeObserver(() => frameCamera(false)).observe(chatPanelEl);
+    }
+    frameCamera(true);
     
     updateLoadingText('Almost ready...');
 }
@@ -975,8 +1049,14 @@ function createCinemaHall() {
 
 function createLighting() {
     // Ambient light
-    const ambientLight = new THREE.AmbientLight(0x8b5e34, 0.1);
+    const ambientLight = new THREE.AmbientLight(0xffe2b8, 0.55);
     scene.add(ambientLight);
+    // Warm overhead light so seats/backrests read clearly on dark screens
+    const hemi = new THREE.HemisphereLight(0xffe7c2, 0x2d1810, 0.6);
+    scene.add(hemi);
+    const seatSpot = new THREE.DirectionalLight(0xffd9a0, 0.7);
+    seatSpot.position.set(0, 10, 12);
+    scene.add(seatSpot);
     
     // Screen light (will be updated with video colors)
     const screenLight = new THREE.PointLight(0xD4AF37, 2, 20);
@@ -985,11 +1065,11 @@ function createLighting() {
     scene.add(screenLight);
     
     // Soft fill lights
-    const fillLight1 = new THREE.PointLight(0x8b5e34, 0.3, 15);
+    const fillLight1 = new THREE.PointLight(0x8b5e34, 0.6, 15);
     fillLight1.position.set(-5, 3, 5);
     scene.add(fillLight1);
     
-    const fillLight2 = new THREE.PointLight(0x8b5e34, 0.3, 15);
+    const fillLight2 = new THREE.PointLight(0x8b5e34, 0.6, 15);
     fillLight2.position.set(5, 3, 5);
     scene.add(fillLight2);
 }
@@ -1125,7 +1205,7 @@ function createSeats() {
             } else if (seatData.occupied) {
                 color.set(0x696969);  // Gray for taken
             } else {
-                color.set(0x8B4513);  // Brown for free
+                color.set(0xB5651D);  // Warm brown for free
             }
             
             seatColors.push(color.r, color.g, color.b);
@@ -1144,7 +1224,7 @@ function createSeats() {
             seats3D.push(seatGroup);
             
             // Create label
-            createSeatLabel(new THREE.Vector3(x, 0.3, z), seatData);
+            seatLabelSprites[instanceId] = createSeatLabel(new THREE.Vector3(x, 0.3, z), seatData);
             
             instanceId++;
         }
@@ -1182,35 +1262,52 @@ function createSeats() {
 }
 
 
+function elideName(name, maxChars = LABEL_MAX_CHARS) {
+    const chars = Array.from(name || '');
+    return chars.length > maxChars ? chars.slice(0, maxChars - 1).join('') + '…' : chars.join('');
+}
+
 function createSeatLabel(position, seatData) {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
-    canvas.width = 128;
-    canvas.height = 64;
-    
-    context.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    context.fillRect(0, 0, 128, 64);
-    
-    context.fillStyle = '#D4AF37';
-    context.font = 'bold 24px Arial';
+    const occupied = !!(seatData.occupied && seatData.occupant);
+    canvas.width = occupied ? 384 : 192;
+    canvas.height = 96;
+    const mine = occupied && seatData.occupant === CURRENT_USERNAME;
+
+    context.fillStyle = mine ? 'rgba(60, 45, 5, 0.9)' : 'rgba(0, 0, 0, 0.82)';
+    context.beginPath();
+    const cw = canvas.width;
+    if (context.roundRect) { context.roundRect(4, 4, cw - 8, 88, 18); } else { context.rect(4, 4, cw - 8, 88); }
+    context.fill();
+
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    
-    if (seatData.occupied && seatData.occupant) {
-        const name = seatData.occupant.substring(0, 8);
-        context.fillText(name, 64, 32);
-    } else {
-        context.fillText(`S${seatData.number}`, 64, 32);
+    let text = `S${seatData.number}`;
+    if (occupied) {
+        text = `S${seatData.number} · ${elideName(seatData.occupant)}`;
     }
-    
+    // Shrink the font until the (already elided) text fits the label
+    let size = 44;
+    do {
+        context.font = `bold ${size}px Arial, sans-serif`;
+        size -= 2;
+    } while (context.measureText(text).width > cw - 32 && size > 18);
+    context.fillStyle = mine ? '#FFE08A' : '#F3D27A';
+    context.fillText(text, cw / 2, 50);
+
     const texture = new THREE.CanvasTexture(canvas);
-    const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+    const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
     const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.scale.set(1, 0.5, 1);
-    sprite.position.set(position.x, position.y + 0.9, position.z);
+    sprite.renderOrder = 10;
+    sprite.scale.set(occupied ? 1.9 : 0.8, occupied ? 0.475 : 0.4, 1);
+    sprite.position.set(position.x, position.y + 1.05, position.z);
     sprite.userData.seatNumber = seatData.number;
-    
+    sprite.userData.fullName = seatData.occupant || '';
+    sprite.userData.labelText = text;
+
     seatsGroup.add(sprite);
+    return sprite;
 }
 
 // ==================== Animation Loop ====================
@@ -1226,135 +1323,212 @@ function animate() {
         lastTime = now;
     }
     
-    // Smooth camera movement (parallax)
-    if (!checkReducedMotion()) {
-        camera.position.x += (targetCameraPos.x - camera.position.x) * 0.05;
-        camera.position.y += (targetCameraPos.y - camera.position.y) * 0.05;
-        camera.position.z += (targetCameraPos.z - camera.position.z) * 0.05;
-        
-        const lookAtTarget = new THREE.Vector3(
-            targetCameraLook.x,
-            targetCameraLook.y,
-            targetCameraLook.z
-        );
-        camera.lookAt(lookAtTarget);
+    // Smooth camera movement toward the framed position (+ tiny desktop parallax)
+    if (cameraBase) {
+        const k = checkReducedMotion() ? 1 : 0.08;
+        targetCameraPos = {
+            x: cameraBase.pos.x + parallax.x,
+            y: cameraBase.pos.y + parallax.y,
+            z: cameraBase.pos.z
+        };
+        camera.position.x += (targetCameraPos.x - camera.position.x) * k;
+        camera.position.y += (targetCameraPos.y - camera.position.y) * k;
+        camera.position.z += (targetCameraPos.z - camera.position.z) * k;
+        camera.lookAt(cameraBase.look);
     }
     
     renderer.render(scene, camera);
+    updateSeatOverlays();
 }
 
 // ==================== Interaction Handlers ====================
 function onMouseMove(event) {
     mouseX = (event.clientX / window.innerWidth) * 2 - 1;
     mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
-    
-    // Subtle parallax
-    targetCameraPos.x = mouseX * 0.5;
-    targetCameraPos.y = 2 - mouseY * 0.3;
+    // Subtle parallax (kept small so framing still holds)
+    parallax.x = mouseX * 0.25;
+    parallax.y = -mouseY * 0.15;
 }
 
-function onTouchMove(event) {
-    if (event.touches.length > 0) {
-        const touch = event.touches[0];
-        mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
-        mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
-        
-        targetCameraPos.x = mouseX * 0.3;
-        targetCameraPos.y = 2 - mouseY * 0.2;
-    }
+// Rectangles of UI that sit on top of the canvas (seats must not hide under them)
+function getOverlayRects() {
+    const rects = [];
+    ['.theatre-topbar', '#chat-panel'].forEach(sel => {
+        const el = document.querySelector(sel);
+        if (!el || el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return;
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && getComputedStyle(el).display !== 'none') rects.push(r);
+    });
+    return rects;
 }
 
-function onDeviceOrientation(event) {
-    if (event.gamma !== null && event.beta !== null) {
-        mouseX = event.gamma / 45; // -1 to 1
-        mouseY = -event.beta / 45;
-        
-        targetCameraPos.x = mouseX * 0.3;
-        targetCameraPos.y = 2 - mouseY * 0.2;
-    }
+// Points that must be visible for each seat: cushion corners + label
+function seatFramePoints() {
+    const pts = [];
+    seats3D.forEach(seat => {
+        const p = seat.position;
+        [[-0.45, 0.15, 0.45], [0.45, 0.15, 0.45], [-0.45, 1.1, -0.4], [0.45, 1.1, -0.4],
+         [-0.95, 1.3, 0], [0.95, 1.3, 0], [0, 1.6, 0]].forEach(([dx, dy, dz]) => {
+            pts.push(new THREE.Vector3(p.x + dx, p.y + dy, p.z + dz));
+        });
+    });
+    return pts;
 }
 
-function onCanvasClick(event) {
-    const rect = renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
-    
-    const intersects = raycaster.intersectObjects(seatsGroup.children, true);
-    
-    if (intersects.length > 0) {
-        const intersection = intersects[0];
-        
-        // Check if it's an InstancedMesh
-        if (intersection.instanceId !== undefined) {
-            const seat = seats3D[intersection.instanceId];
-            if (seat && seat.userData && seat.userData.seatNumber) {
-                takeSeat(seat.userData.seatNumber);
+// Choose a camera position (for the current viewport + overlays) in which every
+// seat and its label is on-screen and outside the UI overlays. Works for any
+// aspect ratio: wide desktop (1366x768) and tall phones (390x844).
+function frameCamera(snap) {
+    if (!camera || !seats3D.length) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    const aspect = w / h;
+    const portrait = aspect < 1;
+    camera.aspect = aspect;
+    camera.fov = portrait ? 62 : 50;
+    camera.updateProjectionMatrix();
+
+    // Look between seats and screen; steeper top-down angle on tall screens
+    const look = portrait ? new THREE.Vector3(0, 0.6, 4.6) : new THREE.Vector3(0, 1.2, 3.2);
+    const dir = portrait ? new THREE.Vector3(0, 1.15, 1).normalize() : new THREE.Vector3(0, 0.42, 1).normalize();
+    const pts = seatFramePoints();
+    const overlays = getOverlayRects();
+    const margin = 10; // px
+    const v = new THREE.Vector3();
+    const fits = () => {
+        camera.updateMatrixWorld(true);
+        for (const p of pts) {
+            v.copy(p).project(camera);
+            if (v.z > 1 || v.z < -1) return false;
+            const sx = (v.x + 1) / 2 * w, sy = (1 - v.y) / 2 * h;
+            if (sx < margin || sx > w - margin || sy < margin || sy > h - margin) return false;
+            for (const r of overlays) {
+                if (sx > r.left - 4 && sx < r.right + 4 && sy > r.top - 4 && sy < r.bottom + 4) return false;
             }
         }
+        return true;
+    };
+    const saved = camera.position.clone();
+    const savedQ = camera.quaternion.clone();
+    let chosen = null;
+    // Search distance; if nothing fits (e.g. very small window) also slide the
+    // look target vertically to dodge a bottom chat panel.
+    const shifts = [0, 0.6, 1.2, -0.6, 1.8];
+    outer:
+    for (const shift of shifts) {
+        const lk = look.clone().add(new THREE.Vector3(0, portrait ? -shift * 0.6 : 0, portrait ? shift : -shift));
+        for (let d = 4; d <= 40; d += 0.25) {
+            camera.position.copy(lk).addScaledVector(dir, d);
+            camera.lookAt(lk);
+            if (fits()) { chosen = { pos: camera.position.clone(), look: lk }; break outer; }
+        }
+    }
+    if (!chosen) {
+        camera.position.copy(look).addScaledVector(dir, 20);
+        chosen = { pos: camera.position.clone(), look: look.clone() };
+    }
+    // Give a little breathing room for parallax
+    chosen.pos.addScaledVector(dir, portrait ? 0.3 : 0.6);
+    cameraBase = chosen;
+    if (snap) {
+        camera.position.copy(chosen.pos);
+        camera.lookAt(chosen.look);
+    } else {
+        camera.position.copy(saved);
+        camera.quaternion.copy(savedQ);
+    }
+    camera.updateMatrixWorld(true);
+}
+
+function seatFromIntersection(hit) {
+    if (!hit) return null;
+    const obj = hit.object;
+    if ((obj.userData.isInstancedSeat || obj.userData.isInstancedBackrest) && hit.instanceId !== undefined) {
+        return seats3D[hit.instanceId] || null;
+    }
+    if (obj.isSprite && obj.userData.seatNumber) {
+        return seats3D.find(s => s.userData.seatNumber === obj.userData.seatNumber) || null;
+    }
+    return null;
+}
+
+// Screen-space position (CSS px) of a world point
+function worldToScreen(x, y, z) {
+    const v = new THREE.Vector3(x, y, z).project(camera);
+    return { x: (v.x + 1) / 2 * window.innerWidth, y: (1 - v.y) / 2 * window.innerHeight, visible: v.z > -1 && v.z < 1 };
+}
+
+function pickSeatAt(clientX, clientY) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, camera);
+    // Only seat meshes and their labels - never walls, screen or bubbles
+    const targets = [window.seatInstancedMesh, window.backrestInstancedMesh, ...seatLabelSprites].filter(Boolean);
+    const hits = raycaster.intersectObjects(targets, false);
+    for (const hit of hits) {
+        const seat = seatFromIntersection(hit);
+        if (seat) return seat;
+    }
+    // Forgiving touch target: nearest seat centre within ~36px of the tap
+    const tol = IS_COARSE_POINTER ? 40 : 24;
+    let best = null, bestD = Infinity;
+    seats3D.forEach(seat => {
+        const sp = worldToScreen(seat.position.x, seat.position.y + 0.35, seat.position.z);
+        const d = Math.hypot(sp.x - clientX, sp.y - clientY);
+        if (sp.visible && d < bestD) { bestD = d; best = seat; }
+    });
+    return bestD <= tol ? best : null;
+}
+
+let pointerDownInfo = null;
+function onCanvasPointerDown(event) {
+    pointerDownInfo = { x: event.clientX, y: event.clientY, t: Date.now(), id: event.pointerId };
+}
+
+function onCanvasPointerUp(event) {
+    const down = pointerDownInfo;
+    pointerDownInfo = null;
+    if (!down || down.id !== event.pointerId) return;
+    const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y);
+    if (moved > 12 || Date.now() - down.t > 800) return;  // drag / long-press, not a tap
+    const seat = pickSeatAt(event.clientX, event.clientY);
+    if (seat && seat.userData && seat.userData.seatNumber) {
+        takeSeat(seat.userData.seatNumber);
     }
 }
+
+// Exposed for automated QA: where each seat is drawn on screen
+window.__theatreSeatScreenPositions = function () {
+    return seats3D.map(seat => {
+        const sp = worldToScreen(seat.position.x, seat.position.y + 0.35, seat.position.z);
+        return { seat: seat.userData.seatNumber, x: Math.round(sp.x), y: Math.round(sp.y), visible: sp.visible,
+                 label: (seatLabelSprites[seat.instanceId] || {}).userData ? seatLabelSprites[seat.instanceId].userData.labelText : null };
+    });
+};
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    frameCamera(false);
 }
 
 // ==================== Camera Animations ====================
 function animateCameraToSeat(seatNumber) {
-    if (checkReducedMotion()) {
-        return;
-    }
-    
-    const seatObj = seats3D.find(s => s.userData.seatNumber === seatNumber);
-    if (!seatObj) return;
-    
-    const pos = seatObj.position;
-    
-    // Move camera to seat view
-    targetCameraPos = {
-        x: pos.x,
-        y: pos.y + 1.5,
-        z: pos.z + 2
-    };
-    targetCameraLook = {
-        x: 0,
-        y: 2,
-        z: -8
-    };
+    // Keep the overview framing so every seat stays visible and tappable
+    // (users can switch seats at any time); nothing to animate.
 }
 
 function introCameraAnimation() {
-    if (checkReducedMotion()) {
-        targetCameraPos = { x: 0, y: 2, z: 8 };
-        targetCameraLook = { x: 0, y: 1.5, z: 0 };
-        return;
+    // Start pulled back; animate() eases into the framed position.
+    if (cameraBase && !checkReducedMotion()) {
+        const back = cameraBase.pos.clone().sub(cameraBase.look).multiplyScalar(1.6).add(cameraBase.look);
+        camera.position.copy(back);
+        camera.lookAt(cameraBase.look);
     }
-    
-    // Start from entrance
-    camera.position.set(0, 2, 15);
-    
-    // Fly in
-    const duration = 2000;
-    const startTime = Date.now();
-    
-    function flyIn() {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3); // ease-out
-        
-        camera.position.z = 15 - eased * 7;
-        
-        if (progress < 1) {
-            requestAnimationFrame(flyIn);
-        }
-    }
-    
-    flyIn();
 }
 
 // ==================== Seat Management ====================
@@ -1394,7 +1568,7 @@ function updateSeatVisual(seatNumber, occupant) {
         } else if (occupant) {
             color.set(0x696969);  // Gray for taken
         } else {
-            color.set(0x8B4513);  // Brown for free
+            color.set(0xB5651D);  // Warm brown for free
         }
         
         // Update instance colors for both seat and backrest
@@ -1416,9 +1590,13 @@ function updateSeatVisual(seatNumber, occupant) {
         
         // Update label
         const sprites = seatsGroup.children.filter(c => c.isSprite && c.userData.seatNumber === seatNumber);
-        sprites.forEach(sprite => seatsGroup.remove(sprite));
+        sprites.forEach(sprite => {
+            seatsGroup.remove(sprite);
+            if (sprite.material.map) sprite.material.map.dispose();
+            sprite.material.dispose();
+        });
         
-        createSeatLabel(new THREE.Vector3(seatObj.position.x, seatObj.position.y, seatObj.position.z), {
+        seatLabelSprites[instanceId] = createSeatLabel(new THREE.Vector3(seatObj.position.x, seatObj.position.y, seatObj.position.z), {
             number: seatNumber,
             occupied: !!occupant,
             occupant: occupant
@@ -1431,7 +1609,7 @@ function updateSeatVisual(seatNumber, occupant) {
         if (occupant) {
             fallbackBtn.classList.add('occupied');
             fallbackBtn.disabled = true;
-            fallbackBtn.innerHTML = `S${seatNumber}<br><small>${occupant.substring(0, 8)}</small>`;
+            fallbackBtn.innerHTML = `S${seatNumber}<br><small title="${escapeHtml(occupant)}">${escapeHtml(elideName(occupant))}</small>`;
         } else {
             fallbackBtn.classList.remove('occupied');
             fallbackBtn.disabled = false;
@@ -1495,7 +1673,7 @@ function addChatMessage(data) {
     messageDiv.innerHTML = `
         <div class="chat-msg-header">
             <span class="chat-msg-user">${escapeHtml(data.username)}</span>
-            <span class="chat-msg-time">${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+            <span class="chat-msg-time">${escapeHtml(data.time_display || new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }))}</span>
         </div>
         <div class="chat-msg-content">${escapeHtml(data.message)}</div>
     `;
@@ -1503,117 +1681,83 @@ function addChatMessage(data) {
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
     
-    // Show 3D chat bubble above sender's seat
-    if (!is2DMode) {
-        showChatBubble(data.username, data.message);
+    // Show chat bubble above sender's seat (clamped to the viewport)
+    showChatBubble(data.username, data.message);
+}
+
+function seatOfUser(username) {
+    return seats3D.find(s => s.userData.occupant === username) || null;
+}
+
+// Keep a seat-anchored HTML element fully inside the visible viewport.
+function placeOverlay(item) {
+    const seat = seatOfUser(item.username);
+    const el = item.el;
+    const w = window.innerWidth, h = window.innerHeight;
+    const vv = window.visualViewport;
+    const vw = vv ? vv.width : w, vh = vv ? vv.height : h;
+    const ow = el.offsetWidth, oh = el.offsetHeight;
+    let ax, ay;
+    if (seat && camera) {
+        const sp = worldToScreen(seat.position.x, seat.position.y + item.lift, seat.position.z);
+        ax = sp.x; ay = sp.y;
+    } else {
+        ax = vw / 2; ay = vh * 0.3;  // no seat yet: centre-top
+    }
+    const elapsed = (Date.now() - item.start) / item.duration;
+    const rise = item.kind === 'reaction' ? elapsed * 60 : elapsed * 12;
+    const pad = 8;
+    const topbar = document.querySelector('.theatre-topbar');
+    const minTop = topbar ? Math.min(topbar.getBoundingClientRect().bottom + 4, vh / 2) : pad;
+    let left = ax - ow / 2;
+    let top = ay - oh - 6 - rise;
+    left = Math.max(pad, Math.min(left, vw - ow - pad));
+    top = Math.max(minTop, Math.min(top, vh - oh - pad));
+    el.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)` + (item.kind === 'reaction' ? ` scale(${1 + elapsed * 0.3})` : '');
+    el.style.opacity = String(Math.max(0, Math.min(1, (1 - elapsed) * 2)));
+}
+
+function updateSeatOverlays() {
+    const now = Date.now();
+    for (let i = activeOverlays.length - 1; i >= 0; i--) {
+        const item = activeOverlays[i];
+        if (now - item.start >= item.duration) {
+            item.el.remove();
+            activeOverlays.splice(i, 1);
+        } else {
+            placeOverlay(item);
+        }
+    }
+}
+
+function addSeatOverlay(kind, username, el, duration, lift) {
+    const layer = document.getElementById('seat-overlay-layer');
+    if (!layer) return;
+    el.dataset.user = username;
+    layer.appendChild(el);
+    const item = { kind, username, el, start: Date.now(), duration, lift };
+    activeOverlays.push(item);
+    placeOverlay(item);
+    // 2D mode has no render loop: drive the overlay ourselves
+    if (is2DMode) {
+        const tick = () => { updateSeatOverlays(); if (activeOverlays.includes(item)) requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
     }
 }
 
 function showChatBubble(username, message) {
-    // Find the user's seat
-    const userSeat = seats3D.find(s => s.userData.occupant === username);
-    if (!userSeat) return;
-    
-    // Create sprite for chat bubble
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 512;
-    canvas.height = 256;
-    
-    // Draw bubble background
-    ctx.fillStyle = 'rgba(212, 175, 55, 0.95)';
-    ctx.strokeStyle = '#8B5E34';
-    ctx.lineWidth = 4;
-    
-    const bubbleWidth = canvas.width - 20;
-    const bubbleHeight = 80;
-    const x = 10;
-    const y = 10;
-    const radius = 15;
-    
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + bubbleWidth - radius, y);
-    ctx.quadraticCurveTo(x + bubbleWidth, y, x + bubbleWidth, y + radius);
-    ctx.lineTo(x + bubbleWidth, y + bubbleHeight - radius);
-    ctx.quadraticCurveTo(x + bubbleWidth, y + bubbleHeight, x + bubbleWidth - radius, y + bubbleHeight);
-    ctx.lineTo(x + radius, y + bubbleHeight);
-    ctx.quadraticCurveTo(x, y + bubbleHeight, x, y + bubbleHeight - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Draw text
-    ctx.fillStyle = '#1a0f0a';
-    ctx.font = 'bold 32px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Word wrap
-    const maxWidth = bubbleWidth - 40;
-    const words = message.split(' ');
-    let line = '';
-    let lines = [];
-    
-    for (let word of words) {
-        const testLine = line + word + ' ';
-        const metrics = ctx.measureText(testLine);
-        if (metrics.width > maxWidth && line !== '') {
-            lines.push(line);
-            line = word + ' ';
-        } else {
-            line = testLine;
+    // Only one bubble per user at a time
+    for (let i = activeOverlays.length - 1; i >= 0; i--) {
+        if (activeOverlays[i].kind === 'bubble' && activeOverlays[i].username === username) {
+            activeOverlays[i].el.remove();
+            activeOverlays.splice(i, 1);
         }
     }
-    lines.push(line);
-    
-    // Limit to 2 lines
-    lines = lines.slice(0, 2);
-    const lineHeight = 36;
-    const startY = y + bubbleHeight / 2 - (lines.length - 1) * lineHeight / 2;
-    
-    lines.forEach((line, i) => {
-        ctx.fillText(line.trim(), canvas.width / 2, startY + i * lineHeight);
-    });
-    
-    // Create sprite
-    const texture = new THREE.CanvasTexture(canvas);
-    const spriteMaterial = new THREE.SpriteMaterial({ 
-        map: texture, 
-        transparent: true,
-        depthTest: false  // Render above other objects
-    });
-    const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.renderOrder = 999;  // High render order to draw on top
-    
-    // Position above seat (sprites auto-billboard toward camera)
-    sprite.scale.set(2.5, 1.25, 1);
-    sprite.position.set(userSeat.position.x, userSeat.position.y + 1.5, userSeat.position.z);
-    
-    scene.add(sprite);
-    
-    // Animate: fade out and remove
-    const startTime = Date.now();
-    const duration = 4000;  // 4 seconds
-    
-    const animateBubble = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = elapsed / duration;
-        
-        if (progress < 1) {
-            sprite.material.opacity = 1 - progress;
-            sprite.position.y += 0.001;  // Slowly rise
-            requestAnimationFrame(animateBubble);
-        } else {
-            scene.remove(sprite);
-            sprite.material.map.dispose();
-            sprite.material.dispose();
-        }
-    };
-    
-    animateBubble();
+    const el = document.createElement('div');
+    el.className = 'seat-bubble';
+    el.innerHTML = `<span class="bubble-user">${escapeHtml(username === CURRENT_USERNAME ? 'You' : username)}</span>` +
+                   `<span class="bubble-text">${escapeHtml(message)}</span>`;
+    addSeatOverlay('bubble', username, el, 6000, 1.7);
 }
 
 function sendChatMessage() {
@@ -1633,6 +1777,15 @@ function sendChatMessage() {
 function toggleChat() {
     const panel = document.getElementById('chat-panel');
     panel.classList.toggle('collapsed');
+    setTimeout(() => frameCamera(false), 350);
+}
+
+// On phones start with the chat collapsed so the seats get the screen
+if (window.innerWidth <= 768) {
+    document.addEventListener('DOMContentLoaded', () => {
+        const panel = document.getElementById('chat-panel');
+        if (panel) panel.classList.add('collapsed');
+    });
 }
 
 function sendReaction(emoji) {
@@ -1647,59 +1800,12 @@ function sendReaction(emoji) {
 }
 
 function showReactionSprite(username, emoji) {
-    if (is2DMode) return;  // Only in 3D mode
-    
-    // Find user's seat
-    const userSeat = seats3D.find(s => s.userData.occupant === username);
-    if (!userSeat) return;
-    
-    // Create emoji sprite
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 128;
-    canvas.height = 128;
-    
-    ctx.font = 'bold 96px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, 64, 64);
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    const spriteMaterial = new THREE.SpriteMaterial({ 
-        map: texture, 
-        transparent: true,
-        depthTest: false  // Render above other objects
-    });
-    const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.renderOrder = 999;  // High render order to draw on top
-    
-    sprite.scale.set(0.5, 0.5, 1);
-    sprite.position.set(userSeat.position.x, userSeat.position.y + 1.0, userSeat.position.z);
-    
-    scene.add(sprite);
-    
-    // Animate: rise and fade
-    const startTime = Date.now();
-    const duration = 2000;
-    const riseSpeed = 0.002;
-    
-    const animateReaction = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = elapsed / duration;
-        
-        if (progress < 1) {
-            sprite.position.y += riseSpeed;
-            sprite.material.opacity = 1 - progress;
-            sprite.scale.set(0.5 + progress * 0.3, 0.5 + progress * 0.3, 1);
-            requestAnimationFrame(animateReaction);
-        } else {
-            scene.remove(sprite);
-            sprite.material.map.dispose();
-            sprite.material.dispose();
-        }
-    };
-    
-    animateReaction();
+    const el = document.createElement('div');
+    el.className = 'seat-reaction';
+    el.textContent = emoji;
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', `${username} reacted ${emoji}`);
+    addSeatOverlay('reaction', username, el, 2500, 1.2);
 }
 
 // ==================== Channel Management ====================
