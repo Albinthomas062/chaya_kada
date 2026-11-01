@@ -1044,5 +1044,32 @@
             font-size: 2rem !important;
         }
     }
+
+    /* Phone fit: the global "@media (max-width:480px) .btn {width:100%; max-width:300px}"
+       and ".btn {min-width:120px}" made the send button 300px wide, which pushed the page to
+       607px, zoomed the layout out and put the input + modal close below the fold. */
+    @media (max-width: 768px) {
+        .chat-room-container {
+            /* nav (70px) + .main-content vertical padding (2 x 1rem) */
+            height: calc(100vh - 70px - 2rem);
+            height: calc(100dvh - 70px - 2rem);
+            max-height: none;
+            min-height: 320px;
+        }
+        .chat-input { min-width: 0; }
+        .input-group input { min-width: 0; flex: 1; }
+        #message-input { min-width: 0; width: auto; }
+        #send-button,
+        .chat-controls .btn,
+        .invite-link-container .btn {
+            width: auto;
+            min-width: 44px;
+            max-width: none;
+        }
+        #send-button { min-height: 44px; }
+        .chat-controls { flex-wrap: wrap; }
+        .auto-expire-notice { bottom: calc(env(safe-area-inset-bottom, 0px) + 124px); }
+        #invite-modal .modern-modal { max-width: calc(100vw - 2rem); box-sizing: border-box; }
+    }
 </style>
 {% endblock %}
