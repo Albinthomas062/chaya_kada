@@ -3,6 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils import timezone
 from .models import ChatRoom, ChatMessage, UserProfile, User, TheatreSeat
+from .chat_utils import display_name, format_time, iso_local, is_anonymous_room
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 # User is not a participant - reject connection
                 await self.close()
                 return
+            self.room_type = room.room_type
                 
         except ChatRoom.DoesNotExist:
             await self.close()
@@ -86,29 +88,40 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     {
                         'type': 'chat_message',
                         'message': message,
-                        'username': self.user.username,
+                        # Internal to the channel layer only; chat_message()
+                        # decides per recipient what identity is revealed.
+                        'sender_id': self.user.id,
+                        'sender_username': self.user.username,
                         'message_type': message_type,  # Server-controlled
-                        'timestamp': saved_message['timestamp']
+                        'timestamp': saved_message['timestamp'],
+                        'time_display': saved_message['time_display'],
                     }
                 )
         except Exception as e:
             logger.error(f"Error in ChatConsumer.receive: {e}")
 
-    # Receive message from room group
+    # Receive message from room group (runs once per recipient socket)
     async def chat_message(self, event):
-        message = event['message']
-        username = event['username']
-        message_type = event.get('message_type', 'text')
-        timestamp = event.get('timestamp', '')
-
-        # Send message to WebSocket
-        await self.send(text_data=json.dumps({
+        sender_id = event.get('sender_id')
+        is_own = sender_id == self.user.id
+        room_type = getattr(self, 'room_type', 'stranger')
+        payload = {
             'type': 'message',
-            'message': message,
-            'username': username,
-            'message_type': message_type,
-            'timestamp': timestamp
-        }))
+            'message': event['message'],
+            'username': (display_name(sender_id, room_type, self.user.id)
+                         if is_anonymous_room(room_type)
+                         else event.get('sender_username', '')),
+            'is_own': is_own,
+            'anonymous': is_anonymous_room(room_type),
+            'message_type': event.get('message_type', 'text'),
+            'timestamp': event.get('timestamp', ''),
+            'time_display': event.get('time_display', ''),
+        }
+        # Never leak the real identity (username or user id) in stranger chats
+        if not is_anonymous_room(room_type):
+            payload['user_id'] = sender_id
+
+        await self.send(text_data=json.dumps(payload))
 
     @database_sync_to_async
     def save_message(self, message, message_type='text'):
@@ -122,7 +135,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
             return {
                 'id': chat_message.id,
-                'timestamp': chat_message.timestamp.isoformat()
+                'timestamp': iso_local(chat_message.timestamp),
+                'time_display': format_time(chat_message.timestamp),
             }
         except Exception as e:
             logger.error(f"Error saving message: {e}")

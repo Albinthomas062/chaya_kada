@@ -21,6 +21,7 @@ from .models import (
     StrangerChatQueue
 )
 from .forms import SimpleUserCreationForm
+from .chat_utils import display_name, format_time, iso_local, is_anonymous_room
 import json
 import uuid
 # views.py
@@ -571,13 +572,13 @@ def find_chat(request):
                     room=available_room,
                     user=request.user,
                     message_type='system',
-                    content=f"{request.user.username} joined the chat"
+                    content="A stranger joined the chat"
                 )
                 return redirect('chat_room', room_id=available_room.room_id)
             else:
                 # Create new stranger room
                 new_room = ChatRoom.objects.create(
-                    name=f"Stranger Chat {timezone.now().strftime('%H:%M')}",
+                    name=f"Stranger Chat {timezone.localtime().strftime('%H:%M')}",
                     room_type='stranger',
                     created_by=request.user,
                     expires_at=timezone.now() + timedelta(hours=1)  # Add expiration
@@ -672,6 +673,7 @@ def create_private_bench(request):
     return redirect('find_chat')
 
 @login_required
+@ensure_csrf_cookie
 def chat_room(request, room_id):
     """Main chat room view"""
     room = get_object_or_404(ChatRoom, room_id=room_id, is_active=True)
@@ -704,6 +706,16 @@ def chat_room(request, room_id):
             is_deleted=False
         ).select_related('user', 'shared_item').order_by('timestamp')[:50]
     
+    # Per-viewer display data: stranger chats are anonymous ('You'/'Stranger'),
+    # times are rendered in IST exactly like the live websocket messages.
+    chat_messages = list(chat_messages)
+    for m in chat_messages:
+        m.display_name = ('System' if m.message_type == 'system'
+                          else display_name(m.user, room, request.user))
+        m.is_own = m.user_id == request.user.id
+        m.time_display = format_time(m.timestamp)
+        m.iso_time = iso_local(m.timestamp)
+
     # Get shareable items user has purchased
     shareable_items = Purchase.objects.filter(
         user=request.user,
@@ -733,11 +745,12 @@ def chat_room(request, room_id):
     
     return render(request, 'chat_room.html', {
         'room': room,
-        'messages': chat_messages,
+        'chat_messages': chat_messages,
         'shareable_items': shareable_items,
         'room_id': str(room_id),
         'invite_link': invite_link,
         'is_room_creator': room.created_by == request.user,
+        'can_invite': room.created_by == request.user and room.room_type == 'private_bench',
         'time_remaining': time_remaining
     })
 @login_required
@@ -776,10 +789,12 @@ def send_chat_message(request):
                 'success': True,
                 'message': {
                     'id': message.id,
-                    'user': message.user.username,
+                    'user': display_name(message.user, room, request.user),
+                    'is_own': True,
                     'content': message.content,
                     'message_type': message.message_type,
-                    'timestamp': message.timestamp.isoformat(),
+                    'timestamp': iso_local(message.timestamp),
+                    'time_display': format_time(message.timestamp),
                 }
             })
             
@@ -820,7 +835,8 @@ def handle_item_sharing(request, room, shared_item_id):
                 'success': True,
                 'message': {
                     'id': message.id,
-                    'user': message.user.username,
+                    'user': display_name(message.user, room, request.user),
+                    'is_own': True,
                     'content': f"shared {purchase.item.name} {purchase.item.emoji}",
                     'message_type': 'shared_item',
                     'shared_item': {
@@ -881,10 +897,12 @@ def get_chat_messages(request, room_id):
         for msg in reversed(messages):
             message_data = {
                 'id': msg.id,
-                'user': msg.user.username,
+                'user': display_name(msg.user, room, request.user),
+                'is_own': msg.user_id == request.user.id,
                 'content': msg.content,
                 'message_type': msg.message_type,
-                'timestamp': msg.timestamp.isoformat(),
+                'timestamp': iso_local(msg.timestamp),
+                'time_display': format_time(msg.timestamp),
             }
             
             # Add shared item data if applicable
@@ -1001,7 +1019,8 @@ def accept_invitation(request, invitation_id):
         room=room,
         user=request.user,
         message_type='system',
-        content=f"{request.user.username} joined the chat"
+        content=("A stranger joined the chat" if is_anonymous_room(room)
+                 else f"{request.user.username} joined the chat")
     )
     
     messages.success(request, 'Invitation accepted! Welcome to the chat.')
@@ -1036,7 +1055,8 @@ def leave_chat(request, room_id):
             room=room,
             user=request.user,
             message_type='system',
-            content=f"{request.user.username} left the chat"
+            content=("Stranger left the chat" if is_anonymous_room(room)
+                     else f"{request.user.username} left the chat")
         )
         
         # If room is empty, deactivate it
@@ -1126,16 +1146,17 @@ def create_bench_invite(request, room_id):
             })
         
         if request.method == 'POST':
-            max_uses = int(request.POST.get('max_uses', 10))
-            
-            # Handle expiration in minutes (new) or days (legacy)
-            expires_in_minutes = request.POST.get('expires_in_minutes')
-            
-            if expires_in_minutes:
-                expiration_delta = timedelta(minutes=int(expires_in_minutes))
-            else:
-                expires_in_days = int(request.POST.get('expires_in_days', 7))
-                expiration_delta = timedelta(days=expires_in_days)
+            try:
+                max_uses = min(max(int(request.POST.get('max_uses', 10)), 1), 50)
+                # Handle expiration in minutes (new) or days (legacy); clamp to sane ranges
+                expires_in_minutes = request.POST.get('expires_in_minutes')
+                if expires_in_minutes:
+                    expiration_delta = timedelta(minutes=min(max(int(expires_in_minutes), 1), 60 * 24 * 30))
+                else:
+                    expires_in_days = min(max(int(request.POST.get('expires_in_days', 7)), 1), 30)
+                    expiration_delta = timedelta(days=expires_in_days)
+            except (TypeError, ValueError):
+                return JsonResponse({'success': False, 'error': 'Invalid invite options'}, status=400)
             
             # Create new invite
             invite = BenchInvite.objects.create(
@@ -1154,7 +1175,7 @@ def create_bench_invite(request, room_id):
                 'success': True,
                 'invite_url': invite_url,
                 'invite_code': invite.invite_code,
-                'expires_at': invite.expires_at.strftime('%Y-%m-%d %H:%M'),
+                'expires_at': timezone.localtime(invite.expires_at).strftime('%Y-%m-%d %H:%M IST'),
                 'max_uses': invite.max_uses,
                 'current_uses': invite.current_uses
             })
@@ -1351,7 +1372,7 @@ def create_stranger_chat_room(request, matched_user_queue):
     
     # Create chat room with max_users=2 for 1-on-1 secure chat
     chat_room = ChatRoom.objects.create(
-        name=f"Stranger Chat {timezone.now().strftime('%H:%M')}",
+        name=f"Stranger Chat {timezone.localtime().strftime('%H:%M')}",
         room_type='stranger',
         created_by=request.user,
         max_users=2,  # Secure 1-on-1 chat
@@ -1681,11 +1702,11 @@ def create_theatre_room(request):
         # Don't allow GET to create rooms - show a form or redirect
         return render(request, 'create_theatre.html')
     
-    theatre_name = request.POST.get('theatre_name', f"Theatre Room {timezone.now().strftime('%H:%M')}")
+    theatre_name = request.POST.get('theatre_name', f"Theatre Room {timezone.localtime().strftime('%H:%M')}")
     channel_url = request.POST.get('channel_url')
     
     if not theatre_name:
-        theatre_name = f"Theatre Room {timezone.now().strftime('%H:%M')}"
+        theatre_name = f"Theatre Room {timezone.localtime().strftime('%H:%M')}"
     
     chat_room = ChatRoom.objects.create(
         name=theatre_name,

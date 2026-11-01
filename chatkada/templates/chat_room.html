@@ -18,7 +18,7 @@
             </div>
         </div>
         <div class="chat-controls">
-            {% if invite_link and is_room_creator %}
+            {% if can_invite %}
             <button id="show-invite-btn" class="btn btn-sm btn-secondary" title="Get invite link">
                 <i class="fas fa-link"></i><span class="btn-text"> Invite</span>
             </button>
@@ -52,7 +52,7 @@
 </div>
 
 <!-- Invite Link Modal -->
-{% if invite_link %}
+{% if can_invite %}
 <div id="invite-modal" class="modal" role="dialog" aria-labelledby="invite-modal-title" aria-hidden="true">
     <div class="modal-content modern-modal">
         <button class="modal-close" onclick="closeInviteModal()" aria-label="Close">&times;</button>
@@ -60,12 +60,13 @@
         <div class="invite-link-container">
             <label for="invite-link-input">Share this link:</label>
             <div class="input-group">
-                <input type="text" id="invite-link-input" value="{{ invite_link }}" readonly>
+                <input type="text" id="invite-link-input" value="{{ invite_link|default:'' }}" placeholder="Generating link…" readonly>
                 <button onclick="copyInviteLink()" class="btn btn-primary">
                     <i class="fas fa-copy"></i> Copy
                 </button>
             </div>
-            <p class="help-text">Anyone with this link can join your bench</p>
+            <p class="help-text" id="invite-help">Anyone with this link can join your bench</p>
+            <button type="button" id="new-invite-btn" class="btn btn-sm btn-secondary"><i class="fas fa-sync"></i> New link</button>
         </div>
     </div>
 </div>
@@ -109,18 +110,24 @@
 {% block extra_js %}
 <script>
     const roomId = '{{ room_id }}';
+    // All chat times are shown in Asia/Kolkata, same as the server render.
+    function formatIST(iso) {
+        const d = iso ? new Date(iso) : new Date();
+        return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+    }
     const currentUserId = {{ user.id }};
     let chatSocket = null;
     
     // Initial messages from server
     const initialMessages = [
-        {% for message in messages %}
+        {% for message in chat_messages %}
         {
             id: {{ message.id }},
-            user: '{{ message.user|anonymous_username:room|escapejs }}',
-            user_id: {{ message.user.id }},
+            user: '{{ message.display_name|escapejs }}',
+            is_own: {{ message.is_own|yesno:"true,false" }},
             content: '{{ message.content|escapejs }}',
-            timestamp: '{{ message.timestamp|date:"g:i A"|escapejs }}',
+            timestamp: '{{ message.time_display|escapejs }}',
+            iso: '{{ message.iso_time|escapejs }}',
             message_type: '{{ message.message_type }}',
             {% if message.message_type == 'shared_item' and message.shared_item %}
             shared_item: {
@@ -135,7 +142,7 @@
     // Render initial messages
     document.addEventListener('DOMContentLoaded', () => {
         initialMessages.forEach(msg => {
-            appendMessage(msg, msg.user_id === currentUserId);
+            appendMessage(msg, msg.is_own && msg.message_type !== 'system');
         });
         scrollToBottom();
     });
@@ -158,12 +165,12 @@
             if (data.type === 'message' || data.type === 'chat_message') {
                 appendMessage({
                     user: data.username,
-                    user_id: data.user_id,
                     content: data.message,
-                    timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                    // server-formatted IST time: identical to what a reload renders
+                    timestamp: data.time_display || formatIST(data.timestamp),
                     message_type: data.message_type || 'text',
                     shared_item: data.shared_item
-                }, data.user_id === currentUserId);
+                }, data.is_own === true);
             } else if (data.type === 'user_joined') {
                 showSystemMessage(`${data.username} joined the chat`);
             } else if (data.type === 'user_left') {
@@ -262,7 +269,7 @@
         appendMessage({
             user: 'System',
             content: text,
-            timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            timestamp: formatIST(),
             message_type: 'system'
         }, false);
     }
@@ -295,11 +302,47 @@
     
     // Invite modal
     const inviteBtn = document.getElementById('show-invite-btn');
+    function getCsrfToken() {
+        const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        if (m) return decodeURIComponent(m[1]);
+        const el = document.querySelector('[name=csrfmiddlewaretoken]');
+        return el ? el.value : '';
+    }
+
+    async function generateInviteLink() {
+        const input = document.getElementById('invite-link-input');
+        const help = document.getElementById('invite-help');
+        input.value = '';
+        input.placeholder = 'Generating link…';
+        try {
+            const body = new URLSearchParams({ max_uses: '10', expires_in_days: '7' });
+            const resp = await fetch('{% url "create_bench_invite" room.room_id %}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCsrfToken(), 'Content-Type': 'application/x-www-form-urlencoded' },
+                credentials: 'same-origin',
+                body
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'Could not create invite');
+            input.value = data.invite_url;
+            help.textContent = `Anyone with this link can join (up to ${data.max_uses} uses, expires ${data.expires_at}).`;
+        } catch (err) {
+            input.placeholder = 'Could not create link';
+            showNotification(err.message || 'Could not create invite', 'error');
+        }
+    }
+
     if (inviteBtn) {
-        inviteBtn.addEventListener('click', () => {
-            document.getElementById('invite-modal').style.display = 'flex';
-            document.getElementById('invite-modal').setAttribute('aria-hidden', 'false');
+        inviteBtn.addEventListener('click', async () => {
+            const modal = document.getElementById('invite-modal');
+            modal.style.display = 'flex';
+            modal.setAttribute('aria-hidden', 'false');
+            if (!document.getElementById('invite-link-input').value) {
+                await generateInviteLink();
+            }
+            document.getElementById('invite-link-input').select();
         });
+        document.getElementById('new-invite-btn').addEventListener('click', generateInviteLink);
     }
     
     function closeInviteModal() {
@@ -311,8 +354,13 @@
     function copyInviteLink() {
         const input = document.getElementById('invite-link-input');
         input.select();
-        document.execCommand('copy');
-        showNotification('Invite link copied!', 'success');
+        const done = () => showNotification('Invite link copied!', 'success');
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(input.value).then(done, () => { document.execCommand('copy'); done(); });
+        } else {
+            document.execCommand('copy');
+            done();
+        }
     }
     
     // Share modal
