@@ -147,8 +147,11 @@ else:
 # Cache configuration (Redis for production, LocMem for local development)
 REDIS_URL = config("REDIS_URL", default=None)
 
-if REDIS_URL:
-    # Use Redis cache when available (production)
+TESTING = len(sys.argv) > 1 and sys.argv[1] == 'test'
+
+if REDIS_URL and not TESTING:
+    # Use Redis cache when available (production). Tests always use LocMem so
+    # cache.clear() in tests never flushes the live Redis DB.
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.redis.RedisCache',

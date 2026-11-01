@@ -99,151 +99,107 @@ class LoginViewTests(TestCase):
 
 
 class BuyItemTests(TestCase):
-    """Test buy_item endpoint security and validation"""
-    
+    """buy_item endpoint security and validation (CSRF actually enforced)."""
+
     def setUp(self):
-        self.client = Client()
+        from chatkada.models import Item, Purchase
+        self.Item, self.Purchase = Item, Purchase
+        # enforce_csrf_checks=True: the default test client silently skips CSRF.
+        self.client = Client(enforce_csrf_checks=True)
         self.user = User.objects.create_user(username='buyer', password='pass123')
         self.profile = self.user.userprofile
         self.profile.coins = 100
         self.profile.save()
         self.client.login(username='buyer', password='pass123')
-        
-        # Import Item and Purchase models
-        from chatkada.models import Item
-        self.Item = Item
-        
-        # Create test items
-        self.available_item = Item.objects.create(
-            name='Test Snack',
-            emoji='🍪',
-            price=10,
-            available=True
-        )
-        self.unavailable_item = Item.objects.create(
-            name='Sold Out',
-            emoji='🚫',
-            price=5,
-            available=False
-        )
-    
+        self.available_item = Item.objects.create(name='Test Snack', emoji='🍪', price=10, available=True)
+        self.unavailable_item = Item.objects.create(name='Sold Out', emoji='🚫', price=5, available=False)
+        # The shop page must hand out the CSRF cookie the JS reads.
+        r = self.client.get(reverse('kada'))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('csrftoken', self.client.cookies)
+        self.token = self.client.cookies['csrftoken'].value
+
+    def _buy(self, payload, raw=False, token=True):
+        kwargs = {'content_type': 'application/json'}
+        if token:
+            kwargs['HTTP_X_CSRFTOKEN'] = self.token
+        body = payload if raw else json.dumps(payload)
+        return self.client.post(reverse('buy_item'), data=body, **kwargs)
+
+    def _assert_unchanged(self, coins=100):
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.coins, coins)
+        self.assertEqual(self.Purchase.objects.filter(user=self.user).count(), 0)
+
     def test_buy_item_requires_csrf(self):
-        """Test that CSRF protection is enabled"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': 1}),
-            content_type='application/json'
-        )
-        # Without CSRF token, should fail
-        self.assertEqual(response.status_code, 403)
-    
+        r = self._buy({'item_id': self.available_item.id, 'quantity': 1}, token=False)
+        self.assertEqual(r.status_code, 403)
+        self._assert_unchanged()
+
     def test_buy_item_success(self):
-        """Test successful purchase"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': 1}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data['success'])
-        self.assertEqual(data['coins'], 90)  # 100 - 10
-        
-        # Verify profile updated
+        r = self._buy({'item_id': self.available_item.id, 'quantity': 1})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['success'])
+        self.assertEqual(r.json()['coins'], 90)
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.coins, 90)
-    
-    def test_negative_quantity_adds_coins(self):
-        """Test that negative quantity is rejected"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': -10}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 400)
-        data = response.json()
-        self.assertFalse(data['success'])
-        
-        # Coins should not change
+        self.assertEqual(self.Purchase.objects.get(user=self.user).total_price, 10)
+
+    def test_multi_quantity_charges_correctly(self):
+        r = self._buy({'item_id': self.available_item.id, 'quantity': 3})
+        self.assertEqual(r.status_code, 200)
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.coins, 100)
-    
+        self.assertEqual(self.profile.coins, 70)
+
+    def test_negative_quantity_rejected_no_free_coins(self):
+        for q in (-10, -1, 0):
+            r = self._buy({'item_id': self.available_item.id, 'quantity': q})
+            self.assertEqual(r.status_code, 400, q)
+            self.assertFalse(r.json()['success'])
+        self._assert_unchanged()
+
     def test_fractional_quantity_rejected(self):
-        """Test that fractional quantity is rejected"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': 1.5}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 400)
-        data = response.json()
-        self.assertFalse(data['success'])
-    
+        for q in (1.5, 0.5, 2.0, '1.5'):
+            r = self._buy({'item_id': self.available_item.id, 'quantity': q})
+            self.assertEqual(r.status_code, 400, q)
+        self._assert_unchanged()
+
     def test_quantity_exceeds_max(self):
-        """Test that quantity over 10 is rejected"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': 11}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 400)
-        data = response.json()
-        self.assertFalse(data['success'])
-    
-    def test_string_quantity_rejected(self):
-        """Test that string quantity is rejected"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': 'bad'}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 400)
-    
+        r = self._buy({'item_id': self.available_item.id, 'quantity': 11})
+        self.assertEqual(r.status_code, 400)
+        self._assert_unchanged()
+
+    def test_string_bool_null_quantity_rejected(self):
+        for q in ('bad', '', None, True, [], {}, '-5'):
+            r = self._buy({'item_id': self.available_item.id, 'quantity': q})
+            self.assertEqual(r.status_code, 400, repr(q))
+        self._assert_unchanged()
+
     def test_invalid_json_rejected(self):
-        """Test that invalid JSON returns 400"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data='not json',
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 400)
-    
+        for body in ('not json', '[1,2]', '"x"', '\xff'):
+            r = self._buy(body, raw=True)
+            self.assertEqual(r.status_code, 400, body)
+        self._assert_unchanged()
+
+    def test_bad_item_id(self):
+        self.assertEqual(self._buy({'item_id': 'abc', 'quantity': 1}).status_code, 400)
+        self.assertEqual(self._buy({'item_id': 999999, 'quantity': 1}).status_code, 404)
+        self.assertEqual(self._buy({'quantity': 1}).status_code, 400)
+        self._assert_unchanged()
+
     def test_unavailable_item_rejected(self):
-        """Test that unavailable items cannot be purchased"""
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.unavailable_item.id, 'quantity': 1}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        self.assertEqual(response.status_code, 400)
-        data = response.json()
-        self.assertFalse(data['success'])
-        self.assertIn('not available', data['message'])
-    
+        r = self._buy({'item_id': self.unavailable_item.id, 'quantity': 1})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('not available', r.json()['message'])
+        self._assert_unchanged()
+
     def test_insufficient_coins(self):
-        """Test that purchase fails with insufficient coins"""
         self.profile.coins = 5
         self.profile.save()
-        
-        response = self.client.post(
-            reverse('buy_item'),
-            data=json.dumps({'item_id': self.available_item.id, 'quantity': 1}),
-            content_type='application/json',
-            HTTP_X_CSRFTOKEN=self.client.cookies.get('csrftoken', '').value
-        )
-        data = response.json()
-        self.assertFalse(data['success'])
-        self.assertIn('Not enough coins', data['message'])
-    
-    def test_only_post_allowed(self):
-        """Test that only POST requests are allowed"""
-        response = self.client.get(reverse('buy_item'))
-        self.assertEqual(response.status_code, 405)  # Method Not Allowed
+        r = self._buy({'item_id': self.available_item.id, 'quantity': 1})
+        self.assertFalse(r.json()['success'])
+        self.assertIn('Not enough coins', r.json()['message'])
+        self._assert_unchanged(coins=5)
 
+    def test_only_post_allowed(self):
+        self.assertEqual(self.client.get(reverse('buy_item')).status_code, 405)

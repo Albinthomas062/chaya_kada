@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib import messages
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -33,6 +33,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Login rate limiting constants
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCKOUT_DURATION = 900  # 15 minutes in seconds
+MAX_PURCHASE_QUANTITY = 10
 
 
 def get_client_ip(request):
@@ -198,6 +199,7 @@ def login_view(request):
     return render(request, 'registration/login.html', {'form': form})
 
 @login_required
+@ensure_csrf_cookie
 def kada(request):
     items = Item.objects.filter(available=True).order_by('sort_order', 'category', 'name')
     chai_items = items.filter(category='chai')
@@ -469,7 +471,12 @@ def buy_item(request):
     """Purchase an item from the shop with secure validation"""
     try:
         data = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request format'
+        }, status=400)
+    if not isinstance(data, dict):
         return JsonResponse({
             'success': False,
             'message': 'Invalid request format'
@@ -485,18 +492,29 @@ def buy_item(request):
             'message': 'Item ID is required'
         }, status=400)
     
-    # Validate quantity: must be integer between 1 and 10
-    try:
-        quantity = int(quantity)
-        if quantity < 1 or quantity > 10:
-            return JsonResponse({
-                'success': False,
-                'message': 'Quantity must be between 1 and 10'
-            }, status=400)
-    except (ValueError, TypeError):
+    # Validate quantity: must be a real integer between 1 and MAX_PURCHASE_QUANTITY.
+    # Reject bools, floats (1.5 / 2.0), numeric strings with junk, etc. so the
+    # client can never get fractional or negative totals.
+    if isinstance(quantity, bool):
+        quantity = None
+    elif isinstance(quantity, str) and quantity.strip().isdigit():
+        quantity = int(quantity.strip())
+    if not isinstance(quantity, int) or isinstance(quantity, bool):
         return JsonResponse({
             'success': False,
             'message': 'Invalid quantity'
+        }, status=400)
+    if quantity < 1 or quantity > MAX_PURCHASE_QUANTITY:
+        return JsonResponse({
+            'success': False,
+            'message': f'Quantity must be between 1 and {MAX_PURCHASE_QUANTITY}'
+        }, status=400)
+
+    # item_id must be an integer primary key
+    if isinstance(item_id, bool) or not (isinstance(item_id, int) or (isinstance(item_id, str) and item_id.isdigit())):
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid item ID'
         }, status=400)
     
     try:
@@ -517,11 +535,11 @@ def buy_item(request):
             total_price = item.price * quantity
             
             # Check sufficient coins
-            if user_profile.coins < total_price:
+            if total_price < 0 or user_profile.coins < total_price:
                 return JsonResponse({
                     'success': False,
                     'message': 'Not enough coins!'
-                })
+                }, status=400)
             
             # Deduct coins
             user_profile.coins -= total_price
